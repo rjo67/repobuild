@@ -56,7 +56,7 @@ func Test_createModel(t *testing.T) {
 		want      string
 		wantErr   bool
 	}{
-		{"ok", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}, {Name: "B"}}}, "[(A/[(B/[]/[])]/[]) (B/[]/[])]", false},
+		{"ok", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}, {Name: "B"}}}, "map[A:(A/[(B/[]/[])]/[]) B:(B/[]/[])]", false},
 		{"unknown child", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}}}, "", true},
 		{"project references itself", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"A"}}}}, "", true},
 		{"same project declared twice", YamlModel{Data: []YamlProject{{Name: "A"}, {Name: "A"}}}, "", true},
@@ -71,7 +71,7 @@ func Test_createModel(t *testing.T) {
 			if err != nil {
 				return
 			}
-			gotStr := fmt.Sprintf("%v", got)
+			gotStr := fmt.Sprintf("%v", got.Nodes)
 			if gotStr != tt.want {
 				t.Errorf("createModel() = %v, want %v", gotStr, tt.want)
 			}
@@ -100,7 +100,7 @@ func Test_checkMemory(t *testing.T) {
 	}
 	var dependencyInProjectA *Node
 	var dependencyInProjectB *Node
-	for _, node := range model {
+	for _, node := range model.Nodes {
 		if node.Name == "A" {
 			for _, depends := range node.Ancestors {
 				if depends.Name == "C" {

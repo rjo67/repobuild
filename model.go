@@ -2,22 +2,52 @@ package main
 
 import (
 	"fmt"
-
-	"gopkg.in/yaml.v3"
 )
 
-// Note: struct fields must be public in order for unmarshal to correctly populate the data.
-type YamlModel struct {
-	Name string
-	Data []YamlProject
+// Status values
+const (
+	WAITING  = iota
+	RUNNING  = iota
+	FINISHED = iota
+	ERROR    = iota
+)
+
+type Model struct {
+	Nodes map[string]*Node
 }
-type YamlProject struct {
-	Name    string
-	Depends []string // these must be processed before this project can be built, i.e. ancestors
+
+/*
+nodesWithStatus returns the nodes with the required status
+*/
+func (m Model) nodesWithStatus(requiredStatus int) []*Node {
+	var nodes []*Node
+	for _, node := range m.Nodes {
+		if node.Status == requiredStatus {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
+}
+
+/*
+status returns an overview of all nodes and their stati
+*/
+func (m Model) status() string {
+	waiting := len(m.nodesWithStatus(WAITING))
+	running := len(m.nodesWithStatus(RUNNING))
+	finished := len(m.nodesWithStatus(FINISHED))
+	errorStatus := len(m.nodesWithStatus(ERROR))
+	var errStr = ""
+	if errorStatus != 0 {
+		errStr = "in error, "
+	}
+	total := waiting + running + finished + errorStatus
+	return fmt.Sprintf("%d waiting, %d running, %d finished, "+errStr+"%d in total", waiting, running, finished, total)
 }
 
 type Node struct {
 	Name      string
+	Status    int
 	Ancestors []*Node
 	Children  []*Node
 }
@@ -26,45 +56,39 @@ func (n Node) String() string {
 	return fmt.Sprintf("(%s/%s/%s)", n.Name, n.Ancestors, n.Children)
 }
 
-func stringAddr(obj any) string {
-	return fmt.Sprintf("%p_%s_", &obj, obj)
-}
-
-func loadYamlModel(data []byte) (YamlModel, error) {
-	model := YamlModel{}
-	err := yaml.Unmarshal(data, &model)
-	return model, err
-}
-
-func createModel(yamlModel YamlModel) ([]Node, error) {
+func createModel(yamlModel YamlModel) (Model, error) {
 	modelMap := make(map[string]*Node)
 	var err error
 	// first create all Node objects in map
 	for _, yamlProject := range yamlModel.Data {
 		projectName := yamlProject.Name
 		if _, present := modelMap[projectName]; present {
-			return nil, fmt.Errorf("project '%s' defined multiple times", projectName)
+			return Model{}, fmt.Errorf("project '%s' defined multiple times", projectName)
 		}
-		node := Node{Name: projectName}
+		node := Node{Name: projectName, Status: WAITING}
 		modelMap[projectName] = &node
 	}
 	// process dependencies
 	for _, yamlProject := range yamlModel.Data {
 		projectName := yamlProject.Name
 		if ancestors, err := _processAncestors(modelMap, yamlProject); err != nil {
-			return nil, err
+			return Model{}, err
 		} else {
 			node := modelMap[projectName]
 			node.Ancestors = ancestors
 		}
 	}
 
-	model := make([]Node, 0, len(modelMap))
-	for _, value := range modelMap {
-		model = append(model, *value)
-	}
-	return model, err
+	/*
+		nodes := make([]Node, 0, len(modelMap))
+		for _, value := range modelMap {
+			nodes = append(nodes, *value)
+		}
+	*/
+	return Model{Nodes: modelMap}, err
 }
+
+// ---------------------------------------
 
 func _processAncestors(modelMap map[string]*Node, yamlProject YamlProject) ([]*Node, error) {
 	var nodes []*Node
