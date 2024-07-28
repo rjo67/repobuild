@@ -30,7 +30,7 @@ func (m Model) nodesWithStatus(requiredStatus int) []*Node {
 }
 
 /*
-status returns an overview of all nodes and their stati
+status returns an overview of all nodes
 */
 func (m Model) status() string {
 	waiting := len(m.nodesWithStatus(WAITING))
@@ -39,10 +39,17 @@ func (m Model) status() string {
 	errorStatus := len(m.nodesWithStatus(ERROR))
 	var errStr = ""
 	if errorStatus != 0 {
-		errStr = "in error, "
+		errStr = fmt.Sprintf("%d in error, ", errorStatus)
 	}
 	total := waiting + running + finished + errorStatus
 	return fmt.Sprintf("%d waiting, %d running, %d finished, "+errStr+"%d in total", waiting, running, finished, total)
+}
+
+/*
+findRunnableNodes returns the nodes which could now be started.
+*/
+func (m Model) findRunnableNodes() []Node {
+	return nil
 }
 
 type Node struct {
