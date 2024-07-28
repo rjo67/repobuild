@@ -68,7 +68,15 @@ func testDriver(model Model) {
 				running = false
 			case "P":
 				nodes := model.findRunnableNodes()
-				fmt.Printf("got nodes: %v\n", nodes)
+				if len(nodes) == 0 {
+					fmt.Println("No nodes can be started")
+				} else {
+					nodeNames := ""
+					for _, node := range nodes {
+						nodeNames += node.Name + " "
+					}
+					fmt.Printf("Following nodes can be started: %s\n", nodeNames)
+				}
 			case "S":
 				split := strings.Split(strings.TrimSpace(cmdStr), " ")
 				if len(split) != 3 { // should be 3: "S <node> state"

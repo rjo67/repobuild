@@ -46,10 +46,17 @@ func (m Model) status() string {
 }
 
 /*
-findRunnableNodes returns the nodes which could now be started.
+findRunnableNodes returns the nodes which can now be started. For this to be possible, all the ancestors of the node must have status=FINISHED
 */
-func (m Model) findRunnableNodes() []Node {
-	return nil
+func (m Model) findRunnableNodes() []*Node {
+	var nodes []*Node
+	waitingNodes := m.nodesWithStatus(WAITING)
+	for _, node := range waitingNodes {
+		if node.ancestorsAreFinished() {
+			nodes = append(nodes, node)
+		}
+	}
+	return nodes
 }
 
 type Node struct {
@@ -57,6 +64,16 @@ type Node struct {
 	Status    int
 	Ancestors []*Node
 	Children  []*Node
+}
+
+func (n Node) ancestorsAreFinished() bool {
+	allAncestorsFinished := true
+	for _, node := range n.Ancestors {
+		if node.Status != FINISHED {
+			allAncestorsFinished = false
+		}
+	}
+	return allAncestorsFinished
 }
 
 func (n Node) String() string {
