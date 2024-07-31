@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 )
 
 // Status values
@@ -12,13 +13,25 @@ const (
 	ERROR    = iota
 )
 
+func statusToString(status int) string {
+	switch status {
+	case WAITING:
+		return "waiting"
+	case RUNNING:
+		return "running"
+	case FINISHED:
+		return "finished"
+	case ERROR:
+		return "in error"
+	}
+	return fmt.Sprintf("status not recognised: %d", status)
+}
+
 type Model struct {
 	Nodes map[string]*Node
 }
 
-/*
-nodesWithStatus returns the nodes with the required status
-*/
+// nodesWithStatus returns the nodes with the required status
 func (m Model) nodesWithStatus(requiredStatus int) []*Node {
 	var nodes []*Node
 	for _, node := range m.Nodes {
@@ -29,34 +42,102 @@ func (m Model) nodesWithStatus(requiredStatus int) []*Node {
 	return nodes
 }
 
-/*
-status returns an overview of all nodes
-*/
-func (m Model) status() string {
-	waiting := len(m.nodesWithStatus(WAITING))
-	running := len(m.nodesWithStatus(RUNNING))
-	finished := len(m.nodesWithStatus(FINISHED))
-	errorStatus := len(m.nodesWithStatus(ERROR))
-	var errStr = ""
-	if errorStatus != 0 {
-		errStr = fmt.Sprintf("%d in error, ", errorStatus)
+// getNodeNames returns the sorted names of the nodes in the given parameter
+func getNodeNames(nodes []*Node) []string {
+	var result []string
+	for _, node := range nodes {
+		result = append(result, node.Name)
 	}
-	total := waiting + running + finished + errorStatus
-	return fmt.Sprintf("%d waiting, %d running, %d finished, "+errStr+"%d in total", waiting, running, finished, total)
+	slices.Sort(result)
+	return result
 }
 
-/*
-findRunnableNodes returns the nodes which can now be started. For this to be possible, all the ancestors of the node must have status=FINISHED
-*/
-func (m Model) findRunnableNodes() []*Node {
-	var nodes []*Node
+// status returns an overview of all nodes
+func (m Model) status(verbose bool) string {
 	waitingNodes := m.nodesWithStatus(WAITING)
-	for _, node := range waitingNodes {
-		if node.ancestorsAreFinished() {
-			nodes = append(nodes, node)
+	waiting := len(waitingNodes)
+	waitingNodeNames := getNodeNames(waitingNodes)
+	runningNodes := m.nodesWithStatus(RUNNING)
+	running := len(runningNodes)
+	runningNodeNames := getNodeNames(runningNodes)
+	finishedNodes := m.nodesWithStatus(FINISHED)
+	finished := len(finishedNodes)
+	finishedNodeNames := getNodeNames(finishedNodes)
+	errorStatusNodes := m.nodesWithStatus(ERROR)
+	errorStatus := len(errorStatusNodes)
+	var errStr = ""
+	if errorStatus != 0 {
+		if verbose {
+			errorStatusNodeNames := getNodeNames(errorStatusNodes)
+			errStr = fmt.Sprintf("%d in error: %s\n", errorStatus, errorStatusNodeNames)
+		} else {
+			errStr = fmt.Sprintf("%d in error, ", errorStatus)
 		}
 	}
-	return nodes
+	total := waiting + running + finished + errorStatus
+	if verbose {
+		return fmt.Sprintf("%d waiting: %s\n%d running: %s\n%d finished: %s\n"+errStr+"TOTAL: %d", waiting,
+			waitingNodeNames, running, runningNodeNames, finished, finishedNodeNames, total)
+	} else {
+		return fmt.Sprintf("%d waiting, %d running, %d finished, "+errStr+"TOTAL: %d", waiting, running, finished, total)
+	}
+}
+
+// findRunnableNodes returns a 2 dimensional array of nodes.
+// The first dimension contains the nodes which can be started.
+// The second dimension contains those nodes which cannot be started.
+// A node is startable if all its ancestors have status=FINISHED.
+// The stateDescription array describes why the nodes can or cannot be started.
+func (m Model) findRunnableNodes() (nodes [2][]*Node, stateDescription [2][]string) {
+	for _, node := range m.nodesWithStatus(WAITING) {
+		allAncestorsFinished, ancestorsDesc := node.ancestorsAreFinished()
+		var slot int
+		if allAncestorsFinished {
+			slot = 0
+		} else {
+			slot = 1
+		}
+		nodes[slot] = append(nodes[slot], node)
+		if len(ancestorsDesc) == 0 {
+			ancestorsDesc = "no ancestors"
+		} else {
+			ancestorsDesc = "ancestors: " + ancestorsDesc
+		}
+		stateDescription[slot] = append(stateDescription[slot], fmt.Sprintf("%s (%s)\n", node.Name, ancestorsDesc))
+	}
+	return nodes, stateDescription
+}
+
+// detectCycle inspects the model to detect a possible cycle.
+func (m Model) detectCycle() error {
+	nameStack := Stack[string]()
+	for _, node := range m.Nodes {
+		alreadyProcessed := make(map[string]bool)
+		alreadyProcessed[node.Name] = true
+		nameStack.Push(node.Name)
+		err := _detectCycle(node, &alreadyProcessed, nameStack)
+		if err != nil {
+			return err
+		}
+		nameStack.Pop()
+	}
+	return nil
+}
+func _detectCycle(node *Node, alreadyProcessed *map[string]bool, nameStack stack[string]) error {
+	for _, ancestor := range node.Ancestors {
+		if _, present := (*alreadyProcessed)[ancestor.Name]; present {
+			nameStack.Push(ancestor.Name) // to improve error messagej
+			return fmt.Errorf("cycle detected: %v", nameStack.Elements())
+		}
+		(*alreadyProcessed)[ancestor.Name] = true
+		nameStack.Push(ancestor.Name)
+		err := _detectCycle(ancestor, alreadyProcessed, nameStack)
+		if err != nil {
+			return err
+		}
+		nameStack.Pop()
+	}
+	return nil
 }
 
 type Node struct {
@@ -66,14 +147,27 @@ type Node struct {
 	Children  []*Node
 }
 
-func (n Node) ancestorsAreFinished() bool {
+// ancestorsAreFinished returns whether all the ancestors of this node have state FINISHED.
+// The second parameter describes the state of all ancestors.
+func (n Node) ancestorsAreFinished() (bool, string) {
 	allAncestorsFinished := true
+	var ancestorStatus [ERROR + 1][]string
 	for _, node := range n.Ancestors {
+		ancestorStatus[node.Status] = append(ancestorStatus[node.Status], node.Name)
 		if node.Status != FINISHED {
 			allAncestorsFinished = false
 		}
 	}
-	return allAncestorsFinished
+	var desc string
+	for status := WAITING; status <= ERROR; status++ {
+		if len(ancestorStatus[status]) != 0 {
+			if len(desc) != 0 {
+				desc += ", "
+			}
+			desc += fmt.Sprintf("%s=%s", statusToString(status), ancestorStatus[status])
+		}
+	}
+	return allAncestorsFinished, desc
 }
 
 func (n Node) String() string {
@@ -102,13 +196,6 @@ func createModel(yamlModel YamlModel) (Model, error) {
 			node.Ancestors = ancestors
 		}
 	}
-
-	/*
-		nodes := make([]Node, 0, len(modelMap))
-		for _, value := range modelMap {
-			nodes = append(nodes, *value)
-		}
-	*/
 	return Model{Nodes: modelMap}, err
 }
 
