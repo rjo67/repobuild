@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
+	"sync"
 )
 
 // Status values
@@ -197,6 +200,46 @@ func createModel(yamlModel YamlModel) (Model, error) {
 		}
 	}
 	return Model{Nodes: modelMap}, err
+}
+
+// modelProcessor is a simple loop to receive commands via the in channel and send the results back on the out channel
+func modelProcessor(model Model, inChannel chan InChannelObject, out chan OutChannelObject, wg sync.WaitGroup) {
+	fmt.Println("modelProcessor waiting ....")
+	for input := range inChannel {
+		fmt.Printf("got cmd: %s\n", input.cmd)
+		switch input.cmd {
+		case "status":
+			out <- OutChannelObject{description: model.status(true)}
+		case "findRunnableNodes":
+			nodes, nodesDesc := model.findRunnableNodes()
+			var nodeStr []string
+			for _, node := range nodes[0] {
+				nodeStr = append(nodeStr, node.Name)
+			}
+			out <- OutChannelObject{nodeNames: nodeStr, nodeDesc: nodesDesc}
+		case "set":
+			split := strings.Split(strings.TrimSpace(input.data), " ")
+			if len(split) != 2 { // should be 3: "<node> <state>"
+				out <- OutChannelObject{description: fmt.Sprintf("invalid format, must be '<node> <state>', got: %s", input.data)}
+			} else {
+				nodeName := split[0]
+				state, err := strconv.Atoi(split[1])
+				if err != nil || state < 0 || state > ERROR {
+					out <- OutChannelObject{description: fmt.Sprintf("invalid value for state (must be 0..%d)", ERROR)}
+					if node, present := model.Nodes[nodeName]; present {
+						fmt.Printf("Setting node %s to state %d\n", nodeName, state)
+						node.Status = state
+						out <- OutChannelObject{description: fmt.Sprintf("Set node %s to state %d", nodeName, state)}
+					} else {
+						out <- OutChannelObject{description: fmt.Sprintf("Node '%s' not defined", nodeName)}
+					}
+				}
+			}
+		default:
+			out <- OutChannelObject{description: fmt.Sprintf("unrecognised command: %s", input.cmd)}
+		}
+	}
+	wg.Done()
 }
 
 // ---------------------------------------
