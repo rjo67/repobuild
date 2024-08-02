@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,6 +109,12 @@ func (m Model) findRunnableNodes() (nodes [2][]*Node, stateDescription [2][]stri
 		}
 		stateDescription[slot] = append(stateDescription[slot], fmt.Sprintf("%s (%s)\n", node.Name, ancestorsDesc))
 	}
+	for _, desc := range stateDescription {
+		sort.Strings(desc)
+	}
+	for _, node := range nodes {
+		sort.Slice(node, func(i, j int) bool { return node[i].Name < node[j].Name })
+	}
 	return nodes, stateDescription
 }
 
@@ -152,8 +159,8 @@ type Node struct {
 
 // ancestorsAreFinished returns whether all the ancestors of this node have state FINISHED.
 // The second parameter describes the state of all ancestors.
-func (n Node) ancestorsAreFinished() (bool, string) {
-	allAncestorsFinished := true
+func (n Node) ancestorsAreFinished() (allAncestorsFinished bool, desc string) {
+	allAncestorsFinished = true
 	var ancestorStatus [ERROR + 1][]string
 	for _, node := range n.Ancestors {
 		ancestorStatus[node.Status] = append(ancestorStatus[node.Status], node.Name)
@@ -161,12 +168,12 @@ func (n Node) ancestorsAreFinished() (bool, string) {
 			allAncestorsFinished = false
 		}
 	}
-	var desc string
 	for status := WAITING; status <= ERROR; status++ {
 		if len(ancestorStatus[status]) != 0 {
 			if len(desc) != 0 {
 				desc += ", "
 			}
+			sort.Strings(ancestorStatus[status])
 			desc += fmt.Sprintf("%s=%s", statusToString(status), ancestorStatus[status])
 		}
 	}
@@ -203,10 +210,8 @@ func createModel(yamlModel YamlModel) (Model, error) {
 }
 
 // modelProcessor is a simple loop to receive commands via the in channel and send the results back on the out channel
-func modelProcessor(model Model, inChannel chan InChannelObject, out chan OutChannelObject, wg sync.WaitGroup) {
-	fmt.Println("modelProcessor waiting ....")
+func modelProcessor(model Model, inChannel chan InChannelObject, out chan OutChannelObject, wg *sync.WaitGroup) {
 	for input := range inChannel {
-		fmt.Printf("got cmd: %s\n", input.cmd)
 		switch input.cmd {
 		case "status":
 			out <- OutChannelObject{description: model.status(true)}
@@ -226,8 +231,8 @@ func modelProcessor(model Model, inChannel chan InChannelObject, out chan OutCha
 				state, err := strconv.Atoi(split[1])
 				if err != nil || state < 0 || state > ERROR {
 					out <- OutChannelObject{description: fmt.Sprintf("invalid value for state (must be 0..%d)", ERROR)}
+				} else {
 					if node, present := model.Nodes[nodeName]; present {
-						fmt.Printf("Setting node %s to state %d\n", nodeName, state)
 						node.Status = state
 						out <- OutChannelObject{description: fmt.Sprintf("Set node %s to state %d", nodeName, state)}
 					} else {

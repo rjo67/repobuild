@@ -45,10 +45,10 @@ func main() {
 
 	out := make(chan OutChannelObject)
 	in := make(chan InChannelObject)
-	var wg sync.WaitGroup
+	var wg = sync.WaitGroup{}
 	wg.Add(2)
-	go modelProcessor(model, in, out, wg)
-	go testDriver(out, in, wg)
+	go modelProcessor(model, in, out, &wg)
+	go testDriver(out, in, &wg)
 
 	wg.Wait()
 }

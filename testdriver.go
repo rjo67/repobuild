@@ -10,12 +10,12 @@ import (
 
 // the testDriver receives commands from the terminal and sends them over the out channel for processing.
 // Replies from the model processor are received via the in channel.
-func testDriver(fromProcessor chan OutChannelObject, toProcessor chan InChannelObject, wg sync.WaitGroup) {
+func testDriver(fromProcessor chan OutChannelObject, toProcessor chan InChannelObject, wg *sync.WaitGroup) {
 	reader := bufio.NewReader(os.Stdin)
 	for running := true; running; {
 		toProcessor <- InChannelObject{cmd: "status"}
 		output := <-fromProcessor
-		fmt.Printf("%s\n", output.description)
+		fmt.Printf("\n\n%s\n", output.description)
 		fmt.Println("\nSet node status, Process, Quit, Help")
 		cmdStr, err := reader.ReadString('\n')
 		if err != nil {
@@ -42,7 +42,7 @@ P - process (shows the next build step)
 				} else {
 					fmt.Printf("Following nodes can be started: %s\n", nodeNames)
 				}
-				fmt.Printf("** Detailed info:\nRUNNABLE: %s\nBLOCKED: %s\n**\n", nodeDesc[0], nodeDesc[1])
+				fmt.Printf("RUNNABLE:\n%s\nBLOCKED:\n%s\n", nodeDesc[0], nodeDesc[1])
 			case "S":
 				split := strings.Split(strings.TrimSpace(cmdStr), " ")
 				if len(split) != 3 { // should be 3: "S <node> state"
@@ -53,6 +53,8 @@ P - process (shows the next build step)
 					output := <-fromProcessor
 					fmt.Printf("%s\n", output.description)
 				}
+			default:
+				fmt.Println("unrecognised command. Use H for help")
 			}
 		}
 	}
