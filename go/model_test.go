@@ -1,4 +1,4 @@
-package main
+package repobuild
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ func Test_createModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := createModel(tt.yamlModel)
+			got, err := CreateModel(tt.yamlModel)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createModel() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -44,12 +44,12 @@ func Test_checkMemory(t *testing.T) {
   - name: C
     depends: []`
 
-	yModel, err := loadYamlModel([]byte(inputyaml))
+	yModel, err := LoadYamlModel([]byte(inputyaml))
 	if err != nil {
 		t.Errorf("loadYamlModel() error = %v", err)
 		return
 	}
-	model, err := createModel(yModel)
+	model, err := CreateModel(yModel)
 	if err != nil {
 		t.Errorf("createModel() error = %v", err)
 		return
@@ -93,7 +93,7 @@ func TestModel_detectCycle(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			model, err := createModel(tt.yamlModel)
+			model, err := CreateModel(tt.yamlModel)
 			if err != nil {
 				t.Errorf("could not create model, error = %v", err)
 			}
@@ -105,4 +105,15 @@ func TestModel_detectCycle(t *testing.T) {
 			t.Logf("got error=%v", err)
 		})
 	}
+}
+
+func TestModel_callScript(t *testing.T) {
+	t.Run("callscript", func(t *testing.T) {
+		/*	err := callScript(`C:\Users\rich\git\repobuild\testfiles\run.bat`)
+			if err != nil {
+				t.Errorf("got error = %v", err)
+			}
+		*/
+		go callScript(`C:\Users\rich\git\repobuild\testfiles\run.bat`)
+	})
 }

@@ -1,4 +1,4 @@
-package main
+package repobuild
 
 type stack[T any] struct {
 	Push     func(T)

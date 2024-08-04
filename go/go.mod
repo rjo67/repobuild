@@ -1,4 +1,4 @@
-module rjo/repobuild
+module github.com/rjo67/repobuild
 
 go 1.22.4
 

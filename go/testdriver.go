@@ -1,4 +1,4 @@
-package main
+package repobuild
 
 import (
 	"bufio"
@@ -10,7 +10,7 @@ import (
 
 // the testDriver receives commands from the terminal and sends them over the out channel for processing.
 // Replies from the model processor are received via the in channel.
-func testDriver(fromProcessor chan OutChannelObject, toProcessor chan InChannelObject, wg *sync.WaitGroup) {
+func TestDriver(fromProcessor chan OutChannelObject, toProcessor chan InChannelObject, wg *sync.WaitGroup) {
 	reader := bufio.NewReader(os.Stdin)
 	for running := true; running; {
 		toProcessor <- InChannelObject{cmd: "status"}

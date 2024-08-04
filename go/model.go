@@ -1,7 +1,9 @@
-package main
+package repobuild
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"slices"
 	"sort"
 	"strconv"
@@ -152,6 +154,7 @@ func _detectCycle(node *Node, alreadyProcessed *map[string]bool, nameStack stack
 
 type Node struct {
 	Name      string
+	Script    string
 	Status    int
 	Ancestors []*Node
 	Children  []*Node
@@ -181,10 +184,12 @@ func (n Node) ancestorsAreFinished() (allAncestorsFinished bool, desc string) {
 }
 
 func (n Node) String() string {
+	// TODO Script not yet included here
 	return fmt.Sprintf("(%s/%s/%s)", n.Name, n.Ancestors, n.Children)
 }
 
-func createModel(yamlModel YamlModel) (Model, error) {
+// CreateModel creates the internal model from the yaml model
+func CreateModel(yamlModel YamlModel) (Model, error) {
 	modelMap := make(map[string]*Node)
 	var err error
 	// first create all Node objects in map
@@ -193,7 +198,7 @@ func createModel(yamlModel YamlModel) (Model, error) {
 		if _, present := modelMap[projectName]; present {
 			return Model{}, fmt.Errorf("project '%s' defined multiple times", projectName)
 		}
-		node := Node{Name: projectName, Status: WAITING}
+		node := Node{Name: projectName, Script: yamlProject.Script, Status: WAITING}
 		modelMap[projectName] = &node
 	}
 	// process dependencies
@@ -209,8 +214,8 @@ func createModel(yamlModel YamlModel) (Model, error) {
 	return Model{Nodes: modelMap}, err
 }
 
-// modelProcessor is a simple loop to receive commands via the in channel and send the results back on the out channel
-func modelProcessor(model Model, inChannel chan InChannelObject, out chan OutChannelObject, wg *sync.WaitGroup) {
+// ModelProcessor is a simple loop to receive commands via the in channel and send the results back on the out channel
+func ModelProcessor(model Model, inChannel chan InChannelObject, out chan OutChannelObject, wg *sync.WaitGroup) {
 	for input := range inChannel {
 		switch input.cmd {
 		case "status":
@@ -262,4 +267,15 @@ func _processAncestors(modelMap map[string]*Node, yamlProject YamlProject) ([]*N
 		}
 	}
 	return nodes, nil
+}
+
+// callScript executes the given scriptname and returns when the script finishes. Returns an error object (nil if RC==0)
+func callScript(scriptname string) error {
+	cmd := exec.Command("cmd.exe", "/C", scriptname)
+	cmd = exec.Command(scriptname, "5")
+	//cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	//	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	return err
 }

@@ -1,4 +1,4 @@
-package main
+package repobuild
 
 import (
 	"fmt"
@@ -20,10 +20,11 @@ func Test_loadModel(t *testing.T) {
 		{"two-projects",
 			`data:
   - name: A
+    script: run.sh param1
     depends: [B, C]
   - name: B
     depends: [C]`,
-			"{ [{A [B C]} {B [C]}]}", false},
+			"{ [{A 'run.sh param1' [B C]} {B [C]}]}", false},
 		{"three-projects",
 			`data:
   - name: A
@@ -36,7 +37,7 @@ func Test_loadModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := loadYamlModel([]byte(tt.inputyaml))
+			got, err := LoadYamlModel([]byte(tt.inputyaml))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("loadModel() error = %v, wantErr %v", err, tt.wantErr)
 				return
