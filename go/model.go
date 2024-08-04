@@ -2,13 +2,13 @@ package repobuild
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
+	"math/rand/v2"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Status values
@@ -19,18 +19,22 @@ const (
 	ERROR    = iota
 )
 
+var statusString = map[int]string{
+	WAITING:  "waiting",
+	RUNNING:  "running",
+	FINISHED: "finished",
+	ERROR:    "in error",
+}
+
+// SLEEP_WAIT_DURATION is how long the ModelProcessor waits before updating its state
+const SLEEP_WAIT_DURATION = 500 * time.Millisecond
+
 func statusToString(status int) string {
-	switch status {
-	case WAITING:
-		return "waiting"
-	case RUNNING:
-		return "running"
-	case FINISHED:
-		return "finished"
-	case ERROR:
-		return "in error"
+	if status < len(statusString) && status >= 0 {
+		return statusString[status]
+	} else {
+		return fmt.Sprintf("status not recognised: %d", status)
 	}
-	return fmt.Sprintf("status not recognised: %d", status)
 }
 
 type Model struct {
@@ -111,11 +115,9 @@ func (m Model) findRunnableNodes() (nodes [2][]*Node, stateDescription [2][]stri
 		}
 		stateDescription[slot] = append(stateDescription[slot], fmt.Sprintf("%s (%s)\n", node.Name, ancestorsDesc))
 	}
-	for _, desc := range stateDescription {
-		sort.Strings(desc)
-	}
-	for _, node := range nodes {
-		sort.Slice(node, func(i, j int) bool { return node[i].Name < node[j].Name })
+	for slot := 0; slot < len(nodes); slot++ {
+		sort.Strings(stateDescription[slot])
+		sort.Slice(nodes[slot], func(i, j int) bool { return nodes[slot][i].Name < nodes[slot][j].Name })
 	}
 	return nodes, stateDescription
 }
@@ -214,42 +216,104 @@ func CreateModel(yamlModel YamlModel) (Model, error) {
 	return Model{Nodes: modelMap}, err
 }
 
-// ModelProcessor is a simple loop to receive commands via the in channel and send the results back on the out channel
-func ModelProcessor(model Model, inChannel chan InChannelObject, out chan OutChannelObject, wg *sync.WaitGroup) {
-	for input := range inChannel {
-		switch input.cmd {
-		case "status":
-			out <- OutChannelObject{description: model.status(true)}
-		case "findRunnableNodes":
-			nodes, nodesDesc := model.findRunnableNodes()
-			var nodeStr []string
-			for _, node := range nodes[0] {
-				nodeStr = append(nodeStr, node.Name)
-			}
-			out <- OutChannelObject{nodeNames: nodeStr, nodeDesc: nodesDesc}
-		case "set":
-			split := strings.Split(strings.TrimSpace(input.data), " ")
-			if len(split) != 2 { // should be 3: "<node> <state>"
-				out <- OutChannelObject{description: fmt.Sprintf("invalid format, must be '<node> <state>', got: %s", input.data)}
-			} else {
-				nodeName := split[0]
-				state, err := strconv.Atoi(split[1])
-				if err != nil || state < 0 || state > ERROR {
-					out <- OutChannelObject{description: fmt.Sprintf("invalid value for state (must be 0..%d)", ERROR)}
-				} else {
-					if node, present := model.Nodes[nodeName]; present {
-						node.Status = state
-						out <- OutChannelObject{description: fmt.Sprintf("Set node %s to state %d", nodeName, state)}
+// ModelProcessor is the main loop to process the model.
+// Will loop 'forever' and process any nodes which can be run.
+// Simple commands can be sent on the inChannel (results are sent back on the outChannel)
+func ModelProcessor(model Model, inChannel <-chan InChannelObject, outChannel chan<- OutChannelObject, wg *sync.WaitGroup) {
+	nodesChannel := make(chan string)
+	nodeStatusChanged := false
+	for stopLoop := false; !stopLoop; {
+		select {
+		// get input from model cli
+		case input := <-inChannel:
+			stopLoop = _processCommand(model, input, outChannel)
+		case nodeInput := <-nodesChannel:
+			fields := strings.Fields(nodeInput)
+			if len(fields) == 2 {
+				switch fields[0] {
+				case "FINISHED":
+					if node, present := model.Nodes[fields[1]]; present {
+						if node.Status != RUNNING {
+							fmt.Printf("Invalid status for node %s: %s\n", fields[1], statusToString(node.Status))
+						} else {
+							node.Status = FINISHED
+							nodeStatusChanged = true
+						}
 					} else {
-						out <- OutChannelObject{description: fmt.Sprintf("Node '%s' not defined", nodeName)}
+						fmt.Printf("Node %s not found\n", fields[1])
 					}
+				default:
+					fmt.Printf("Unrecognised message on nodes channel: %s\n", nodeInput)
 				}
+			} else {
+				fmt.Printf("Invalid message on nodes channel: %s\n", nodeInput)
 			}
+		// update state of model (have tasks finished? Start new tasks, etc)
 		default:
-			out <- OutChannelObject{description: fmt.Sprintf("unrecognised command: %s", input.cmd)}
+			//fmt.Println("updating model ...")
+			time.Sleep(SLEEP_WAIT_DURATION)
+			runnableNodes, _ := model.findRunnableNodes()
+			for _, node := range runnableNodes[0] {
+				_startNode(node, nodesChannel)
+				nodeStatusChanged = true
+			}
+		}
+		if nodeStatusChanged {
+			fmt.Printf("\n\n%s\n", model.status(false))
+			nodeStatusChanged = false
+		}
+		// TODO this exits the loop, if all finished, but the model-cli needs to be notified
+		if len(model.Nodes) == len(model.nodesWithStatus(FINISHED))+len(model.nodesWithStatus(ERROR)) {
+			stopLoop = true
 		}
 	}
 	wg.Done()
+}
+
+func _processCommand(model Model, input InChannelObject, outChannel chan<- OutChannelObject) (quitRequested bool) {
+	quitRequested = false
+	switch input.cmd {
+	case "quit":
+		quitRequested = true
+	case "status":
+		outChannel <- OutChannelObject{description: model.status(true)}
+	case "findRunnableNodes":
+		nodes, nodesDesc := model.findRunnableNodes()
+		// just return the node names
+		var nodeStr []string
+		for _, node := range nodes[0] {
+			nodeStr = append(nodeStr, node.Name)
+		}
+		outChannel <- OutChannelObject{nodeNames: nodeStr, nodeDesc: nodesDesc}
+	case "set":
+		split := strings.Split(strings.TrimSpace(input.data), " ")
+		if len(split) != 2 { // should be 3: "<node> <state>"
+			outChannel <- OutChannelObject{description: fmt.Sprintf("invalid format, must be '<node> <state>', got: %s", input.data)}
+		} else {
+			nodeName := split[0]
+			state, err := strconv.Atoi(split[1])
+			if err != nil || state < 0 || state > ERROR {
+				outChannel <- OutChannelObject{description: fmt.Sprintf("invalid value for state (must be 0..%d)", ERROR)}
+			} else {
+				if node, present := model.Nodes[nodeName]; present {
+					node.Status = state
+					outChannel <- OutChannelObject{description: fmt.Sprintf("Set node %s to state %d", nodeName, state)}
+				} else {
+					outChannel <- OutChannelObject{description: fmt.Sprintf("Node '%s' not defined", nodeName)}
+				}
+			}
+		}
+	default:
+		outChannel <- OutChannelObject{description: fmt.Sprintf("unrecognised command: %s", input.cmd)}
+	}
+	return quitRequested
+}
+
+func _startNode(node *Node, nodesChannel chan<- string) {
+	fmt.Printf("starting node %s\n", (*node).Name)
+	//time.Sleep(500 * time.Millisecond)
+	go TestNode((*node).Name, nodesChannel)
+	node.Status = RUNNING
 }
 
 // ---------------------------------------
@@ -269,13 +333,10 @@ func _processAncestors(modelMap map[string]*Node, yamlProject YamlProject) ([]*N
 	return nodes, nil
 }
 
-// callScript executes the given scriptname and returns when the script finishes. Returns an error object (nil if RC==0)
-func callScript(scriptname string) error {
-	cmd := exec.Command("cmd.exe", "/C", scriptname)
-	cmd = exec.Command(scriptname, "5")
-	//cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	//	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-	return err
+func TestNode(name string, nodesChannel chan<- string) {
+	sleep := rand.IntN(25) + 1
+	fmt.Printf("Node %s starting (sleep=%d)\n", name, sleep)
+	time.Sleep(time.Duration(sleep) * time.Second)
+	fmt.Printf("Node %s finished\n", name)
+	nodesChannel <- "FINISHED " + name
 }

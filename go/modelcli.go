@@ -8,9 +8,9 @@ import (
 	"sync"
 )
 
-// the testDriver receives commands from the terminal and sends them over the out channel for processing.
+// the ModelCli takes commands from the terminal and sends them over the out channel for processing.
 // Replies from the model processor are received via the in channel.
-func TestDriver(fromProcessor chan OutChannelObject, toProcessor chan InChannelObject, wg *sync.WaitGroup) {
+func ModelCli(fromProcessor chan OutChannelObject, toProcessor chan InChannelObject, wg *sync.WaitGroup) {
 	reader := bufio.NewReader(os.Stdin)
 	for running := true; running; {
 		toProcessor <- InChannelObject{cmd: "status"}
@@ -31,13 +31,14 @@ P - process (shows the next build step)
 					`)
 			case "Q":
 				running = false
+				toProcessor <- InChannelObject{cmd: "quit"}
 				close(toProcessor)
 				wg.Done()
 			case "P":
 				toProcessor <- InChannelObject{cmd: "findRunnableNodes"}
 				output := <-fromProcessor
 				nodeNames, nodeDesc := output.nodeNames, output.nodeDesc
-				if len(nodeNames[0]) == 0 {
+				if len(nodeNames) == 0 {
 					fmt.Println("No nodes can be started")
 				} else {
 					fmt.Printf("Following nodes can be started: %s\n", nodeNames)

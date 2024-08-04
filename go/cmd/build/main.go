@@ -37,7 +37,7 @@ func main() {
 	var wg = sync.WaitGroup{}
 	wg.Add(2)
 	go repobuild.ModelProcessor(model, in, out, &wg)
-	go repobuild.TestDriver(out, in, &wg)
+	go repobuild.ModelCli(out, in, &wg)
 
 	wg.Wait()
 }

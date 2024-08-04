@@ -106,14 +106,3 @@ func TestModel_detectCycle(t *testing.T) {
 		})
 	}
 }
-
-func TestModel_callScript(t *testing.T) {
-	t.Run("callscript", func(t *testing.T) {
-		/*	err := callScript(`C:\Users\rich\git\repobuild\testfiles\run.bat`)
-			if err != nil {
-				t.Errorf("got error = %v", err)
-			}
-		*/
-		go callScript(`C:\Users\rich\git\repobuild\testfiles\run.bat`)
-	})
-}
