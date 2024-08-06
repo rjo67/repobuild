@@ -162,6 +162,15 @@ type Node struct {
 	Children  []*Node
 }
 
+type Statistics struct {
+	StartTime time.Time
+	NodeStats []NodeStatistics
+}
+type NodeStatistics struct {
+	Name      string
+	BuildTime time.Duration
+}
+
 // ancestorsAreFinished returns whether all the ancestors of this node have state FINISHED.
 // The second parameter describes the state of all ancestors.
 func (n Node) ancestorsAreFinished() (allAncestorsFinished bool, desc string) {
@@ -218,15 +227,18 @@ func CreateModel(yamlModel YamlModel) (Model, error) {
 
 // ModelProcessor is the main loop to process the model.
 // Will loop 'forever' and process any nodes which can be run.
-// Simple commands can be sent on the inChannel (results are sent back on the outChannel)
-func ModelProcessor(model Model, inChannel <-chan InChannelObject, outChannel chan<- OutChannelObject, wg *sync.WaitGroup) {
+// Simple commands can be sent via the cliCommunoication 'in' Channel (results are sent back on the 'out' Channel)
+// Statistics will be stored in stats.
+func ModelProcessor(model Model, cliCommunication *CliCommunication, stats *Statistics, wg *sync.WaitGroup) {
 	nodesChannel := make(chan string)
 	nodeStatusChanged := false
+	nodeStartTime := make(map[string]time.Time) // stores start times for nodes
 	for stopLoop := false; !stopLoop; {
 		select {
 		// get input from model cli
-		case input := <-inChannel:
-			stopLoop = _processCommand(model, input, outChannel)
+		case input := <-cliCommunication.FromCli:
+			stopLoop = _processCommand(model, input, cliCommunication.ToCli)
+		// get info from node subtasks
 		case nodeInput := <-nodesChannel:
 			fields := strings.Fields(nodeInput)
 			if len(fields) == 2 {
@@ -237,6 +249,10 @@ func ModelProcessor(model Model, inChannel <-chan InChannelObject, outChannel ch
 							fmt.Printf("Invalid status for node %s: %s\n", fields[1], statusToString(node.Status))
 						} else {
 							node.Status = FINISHED
+							if startTime, present := nodeStartTime[node.Name]; present {
+								stats.NodeStats = append(stats.NodeStats,
+									NodeStatistics{Name: node.Name, BuildTime: time.Since(startTime).Round(time.Second)})
+							}
 							nodeStatusChanged = true
 						}
 					} else {
@@ -250,15 +266,15 @@ func ModelProcessor(model Model, inChannel <-chan InChannelObject, outChannel ch
 			}
 		// update state of model (have tasks finished? Start new tasks, etc)
 		default:
-			//fmt.Println("updating model ...")
-			time.Sleep(SLEEP_WAIT_DURATION)
 			runnableNodes, _ := model.findRunnableNodes()
 			for _, node := range runnableNodes[0] {
+				nodeStartTime[node.Name] = time.Now()
 				_startNode(node, nodesChannel)
 				nodeStatusChanged = true
 			}
 		}
 		if nodeStatusChanged {
+			time.Sleep(SLEEP_WAIT_DURATION)
 			fmt.Printf("\n\n%s\n", model.status(false))
 			nodeStatusChanged = false
 		}
@@ -266,6 +282,11 @@ func ModelProcessor(model Model, inChannel <-chan InChannelObject, outChannel ch
 		if len(model.Nodes) == len(model.nodesWithStatus(FINISHED))+len(model.nodesWithStatus(ERROR)) {
 			stopLoop = true
 		}
+	}
+	// tell cli to stop (if present)
+	if cliCommunication.StopChan != nil {
+		cliCommunication.StopChan <- 1
+		time.Sleep(300 * time.Millisecond)
 	}
 	wg.Done()
 }
@@ -334,7 +355,7 @@ func _processAncestors(modelMap map[string]*Node, yamlProject YamlProject) ([]*N
 }
 
 func TestNode(name string, nodesChannel chan<- string) {
-	sleep := rand.IntN(25) + 1
+	sleep := rand.IntN(10) + 1
 	fmt.Printf("Node %s starting (sleep=%d)\n", name, sleep)
 	time.Sleep(time.Duration(sleep) * time.Second)
 	fmt.Printf("Node %s finished\n", name)

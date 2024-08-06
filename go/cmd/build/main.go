@@ -5,18 +5,21 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/rjo67/repobuild"
 )
 
 type Args struct {
 	Filename string
+	StartCli bool // start the command line process
 }
 
 func main() {
 	args := Args{}
 
 	flag.StringVar(&args.Filename, "f", "", "node definition file (yaml)")
+	flag.BoolVar(&args.StartCli, "c", false, "start command line interface")
 	flag.Parse()
 
 	// check input parameters
@@ -32,14 +35,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	out := make(chan repobuild.OutChannelObject)
-	in := make(chan repobuild.InChannelObject)
+	cliCommunication := repobuild.CliCommunication{ToCli: make(chan repobuild.OutChannelObject), FromCli: make(chan repobuild.InChannelObject)}
 	var wg = sync.WaitGroup{}
-	wg.Add(2)
-	go repobuild.ModelProcessor(model, in, out, &wg)
-	go repobuild.ModelCli(out, in, &wg)
+
+	stats := repobuild.Statistics{StartTime: time.Now()}
+	wg.Add(1)
+	go repobuild.ModelProcessor(model, &cliCommunication, &stats, &wg)
+	if args.StartCli {
+		wg.Add(1)
+		cliCommunication.StopChan = make(chan int)
+		go repobuild.ModelCli(&cliCommunication, &wg)
+	}
 
 	wg.Wait()
+	fmt.Printf("finished in %s\n", time.Since(stats.StartTime).Round(time.Second))
+	fmt.Printf("%v\n", stats.NodeStats)
 }
 
 // process reads in the input file and returns a Model
