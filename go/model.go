@@ -13,10 +13,12 @@ import (
 
 // Status values
 const (
-	WAITING  = iota
-	RUNNING  = iota
-	FINISHED = iota
-	ERROR    = iota
+	WAITING = iota
+	RUNNING
+	FINISHED
+	ERROR
+	IGNORED
+	numberOfStatusValues
 )
 
 var statusString = map[int]string{
@@ -24,32 +26,43 @@ var statusString = map[int]string{
 	RUNNING:  "running",
 	FINISHED: "finished",
 	ERROR:    "in error",
+	IGNORED:  "ignored",
 }
 
 // SLEEP_WAIT_DURATION is how long the ModelProcessor waits before updating its state
 const SLEEP_WAIT_DURATION = 500 * time.Millisecond
 
 func statusToString(status int) string {
-	if status < len(statusString) && status >= 0 {
+	if status < numberOfStatusValues && status >= 0 {
 		return statusString[status]
 	} else {
 		return fmt.Sprintf("status not recognised: %d", status)
 	}
+}
+func hasFinishedStatus(status int) bool {
+	return status == FINISHED || status == IGNORED
 }
 
 type Model struct {
 	Nodes map[string]*Node
 }
 
-// nodesWithStatus returns the nodes with the required status
-func (m Model) nodesWithStatus(requiredStatus int) []*Node {
-	var nodes []*Node
+// nodesWithStatus returns an array of slices of nodes indexed on the required status (indexed by 'Status')
+func (m Model) nodesWithStatus() [numberOfStatusValues][]*Node {
+	var nodes [numberOfStatusValues][]*Node
+	for i := 0; i < numberOfStatusValues; i++ {
+		nodes[i] = make([]*Node, 0)
+	}
 	for _, node := range m.Nodes {
-		if node.Status == requiredStatus {
-			nodes = append(nodes, node)
-		}
+		nodes[node.Status] = append(nodes[node.Status], node)
 	}
 	return nodes
+}
+
+// nodesInEndStatus returns how many nodes are in an 'end' status (finished, error, ignored)
+func (m Model) nodesInEndStatus() int {
+	allNodes := m.nodesWithStatus()
+	return len(allNodes[FINISHED]) + len(allNodes[ERROR]) + len(allNodes[IGNORED])
 }
 
 // getNodeNames returns the sorted names of the nodes in the given parameter
@@ -64,32 +77,43 @@ func getNodeNames(nodes []*Node) []string {
 
 // status returns an overview of all nodes
 func (m Model) status(verbose bool) string {
-	waitingNodes := m.nodesWithStatus(WAITING)
-	waiting := len(waitingNodes)
-	waitingNodeNames := getNodeNames(waitingNodes)
-	runningNodes := m.nodesWithStatus(RUNNING)
-	running := len(runningNodes)
-	runningNodeNames := getNodeNames(runningNodes)
-	finishedNodes := m.nodesWithStatus(FINISHED)
-	finished := len(finishedNodes)
-	finishedNodeNames := getNodeNames(finishedNodes)
-	errorStatusNodes := m.nodesWithStatus(ERROR)
-	errorStatus := len(errorStatusNodes)
+	allNodes := m.nodesWithStatus()
+	var nbrNodes [numberOfStatusValues]int
+	var nodeNames [numberOfStatusValues][]string
+	totalNbrNodes := 0
+	for i := 0; i <= IGNORED; i++ {
+		nbrNodes[i] = len(allNodes[i])
+		totalNbrNodes += nbrNodes[i]
+		nodeNames[i] = getNodeNames(allNodes[i])
+	}
+	// 'error' and 'ignored' special cases, since don't occur so frequently
 	var errStr = ""
-	if errorStatus != 0 {
+	if nbrNodes[ERROR] != 0 {
 		if verbose {
-			errorStatusNodeNames := getNodeNames(errorStatusNodes)
-			errStr = fmt.Sprintf("%d in error: %s\n", errorStatus, errorStatusNodeNames)
+			errStr = fmt.Sprintf("%d in error: %s\n", nbrNodes[ERROR], nodeNames[ERROR])
 		} else {
-			errStr = fmt.Sprintf("%d in error, ", errorStatus)
+			errStr = fmt.Sprintf("%d in error", nbrNodes[ERROR])
 		}
 	}
-	total := waiting + running + finished + errorStatus
+	var ignoredStr = ""
+	if nbrNodes[IGNORED] != 0 {
+		if verbose {
+			ignoredStr = fmt.Sprintf("%d ignored: %s\n", nbrNodes[IGNORED], nodeNames[IGNORED])
+		} else {
+			ignoredStr = fmt.Sprintf("%d ignored, ", nbrNodes[IGNORED])
+		}
+	}
+	// adjust formatting: if the 'ignoredStr' is empty, then need a comma after 'errStr' (if not empty)
+	if ignoredStr == "" {
+		if errStr != "" {
+			errStr += ", "
+		}
+	}
 	if verbose {
-		return fmt.Sprintf("%d waiting: %s\n%d running: %s\n%d finished: %s\n"+errStr+"TOTAL: %d", waiting,
-			waitingNodeNames, running, runningNodeNames, finished, finishedNodeNames, total)
+		return fmt.Sprintf("%d waiting: %s\n%d running: %s\n%d finished: %s\n%s%sTOTAL: %d", nbrNodes[WAITING],
+			nodeNames[WAITING], nbrNodes[RUNNING], nodeNames[RUNNING], nbrNodes[FINISHED], nodeNames[FINISHED], errStr, ignoredStr, totalNbrNodes)
 	} else {
-		return fmt.Sprintf("%d waiting, %d running, %d finished, "+errStr+"TOTAL: %d", waiting, running, finished, total)
+		return fmt.Sprintf("%d waiting, %d running, %d finished, %s%sTOTAL: %d", nbrNodes[WAITING], nbrNodes[RUNNING], nbrNodes[FINISHED], errStr, ignoredStr, totalNbrNodes)
 	}
 }
 
@@ -99,7 +123,8 @@ func (m Model) status(verbose bool) string {
 // A node is startable if all its ancestors have status=FINISHED.
 // The stateDescription array describes why the nodes can or cannot be started.
 func (m Model) findRunnableNodes() (nodes [2][]*Node, stateDescription [2][]string) {
-	for _, node := range m.nodesWithStatus(WAITING) {
+	allNodes := m.nodesWithStatus()
+	for _, node := range allNodes[WAITING] {
 		allAncestorsFinished, ancestorsDesc := node.ancestorsAreFinished()
 		var slot int
 		if allAncestorsFinished {
@@ -175,14 +200,14 @@ type NodeStatistics struct {
 // The second parameter describes the state of all ancestors.
 func (n Node) ancestorsAreFinished() (allAncestorsFinished bool, desc string) {
 	allAncestorsFinished = true
-	var ancestorStatus [ERROR + 1][]string
+	var ancestorStatus [numberOfStatusValues][]string
 	for _, node := range n.Ancestors {
 		ancestorStatus[node.Status] = append(ancestorStatus[node.Status], node.Name)
-		if node.Status != FINISHED {
+		if !hasFinishedStatus(node.Status) {
 			allAncestorsFinished = false
 		}
 	}
-	for status := WAITING; status <= ERROR; status++ {
+	for status := WAITING; status < numberOfStatusValues; status++ {
 		if len(ancestorStatus[status]) != 0 {
 			if len(desc) != 0 {
 				desc += ", "
@@ -209,7 +234,11 @@ func CreateModel(yamlModel YamlModel) (Model, error) {
 		if _, present := modelMap[projectName]; present {
 			return Model{}, fmt.Errorf("project '%s' defined multiple times", projectName)
 		}
-		node := Node{Name: projectName, Script: yamlProject.Script, Status: WAITING}
+		nodeStatus := WAITING
+		if yamlProject.Ignore {
+			nodeStatus = IGNORED
+		}
+		node := Node{Name: projectName, Script: yamlProject.Script, Status: nodeStatus}
 		modelMap[projectName] = &node
 	}
 	// process dependencies
@@ -233,6 +262,10 @@ func ModelProcessor(model Model, cliCommunication *CliCommunication, stats *Stat
 	nodesChannel := make(chan string)
 	nodeStatusChanged := false
 	nodeStartTime := make(map[string]time.Time) // stores start times for nodes
+	// preprocess 'ignored' nodes
+	for _, ignoredNode := range model.nodesWithStatus()[IGNORED] {
+		stats.NodeStats = append(stats.NodeStats, NodeStatistics{Name: ignoredNode.Name, BuildTime: time.Duration(0)})
+	}
 	for stopLoop := false; !stopLoop; {
 		select {
 		// get input from model cli
@@ -279,7 +312,7 @@ func ModelProcessor(model Model, cliCommunication *CliCommunication, stats *Stat
 			nodeStatusChanged = false
 		}
 		// TODO this exits the loop, if all finished, but the model-cli needs to be notified
-		if len(model.Nodes) == len(model.nodesWithStatus(FINISHED))+len(model.nodesWithStatus(ERROR)) {
+		if len(model.Nodes) == model.nodesInEndStatus() {
 			stopLoop = true
 		}
 	}

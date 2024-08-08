@@ -34,6 +34,19 @@ func Test_loadModel(t *testing.T) {
   - name: C
     depends: [D]`,
 			"{ [{A [B C]} {B []} {C [D]}]}", false},
+		{"invalid field",
+			`data:
+  - name: A
+    depends: [B, C],
+	silly: true`,
+			"{ []}", true},
+		{"ignored project",
+			`data:
+  - name: A
+    depends: [B, C]
+  - name: B
+    ignore: true`,
+			"{ [{A [B C]} {B [] (ignored)}]}", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
