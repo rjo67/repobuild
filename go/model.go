@@ -201,15 +201,6 @@ type Node struct {
 	Children  []*Node
 }
 
-type Statistics struct {
-	StartTime time.Time
-	NodeStats []NodeStatistics
-}
-type NodeStatistics struct {
-	Name      string
-	BuildTime time.Duration
-}
-
 // ancestorsAreFinished returns whether all the ancestors of this node have state FINISHED.
 // The second parameter describes the state of all ancestors.
 func (n Node) ancestorsAreFinished() (allAncestorsFinished bool, desc string) {

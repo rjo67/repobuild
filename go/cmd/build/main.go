@@ -64,8 +64,8 @@ func main() {
 	}
 
 	wg.Wait()
-	fmt.Printf("finished in %s\n", time.Since(stats.StartTime).Round(time.Second))
-	fmt.Printf("%v\n", stats.NodeStats)
+	stats.FinishTime = time.Now()
+	fmt.Printf("%s\n", stats.Print())
 }
 
 // process reads in the input file and returns a Model
