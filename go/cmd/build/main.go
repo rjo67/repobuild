@@ -13,6 +13,7 @@ import (
 type Args struct {
 	Filename string
 	StartCli bool // start the command line process
+	Ignored  string
 }
 
 func main() {
@@ -20,6 +21,7 @@ func main() {
 
 	flag.StringVar(&args.Filename, "f", "", "node definition file (yaml)")
 	flag.BoolVar(&args.StartCli, "c", false, "start command line interface")
+	flag.StringVar(&args.Ignored, "i", "", "list of projects to ignore (comma-separated)")
 	flag.Parse()
 
 	// check input parameters
@@ -33,6 +35,20 @@ func main() {
 	if model, err = process(args); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if args.Ignored != "" {
+		nbr, err := model.SetIgnored(args.Ignored)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		} else {
+			projectStr := "project"
+			if nbr != 1 {
+				projectStr += "s"
+			}
+			fmt.Printf("Set %d %s to state 'ignored'\n", nbr, projectStr)
+		}
 	}
 
 	cliCommunication := repobuild.CliCommunication{ToCli: make(chan repobuild.OutChannelObject), FromCli: make(chan repobuild.InChannelObject)}

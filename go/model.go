@@ -65,6 +65,20 @@ func (m Model) nodesInEndStatus() int {
 	return len(allNodes[FINISHED]) + len(allNodes[ERROR]) + len(allNodes[IGNORED])
 }
 
+// SetIgnored sets the 'ignored' flag on the projects in the eparated list 'ignored'
+// Returns the number of projects processed
+func (m Model) SetIgnored(ignored string) (int, error) {
+	projectNames := strings.Split(ignored, ",")
+	for _, name := range projectNames {
+		if node, present := m.Nodes[name]; present {
+			node.Status = IGNORED
+		} else {
+			return -1, fmt.Errorf("unknown project '%s' in ignore list", name)
+		}
+	}
+	return len(projectNames), nil
+}
+
 // getNodeNames returns the sorted names of the nodes in the given parameter
 func getNodeNames(nodes []*Node) []string {
 	var result []string
