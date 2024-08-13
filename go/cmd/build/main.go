@@ -3,11 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/rjo67/repobuild"
+	"github.com/rjo67/repobuild/cli"
 )
 
 type Args struct {
@@ -56,16 +60,30 @@ func main() {
 
 	stats := repobuild.Statistics{StartTime: time.Now()}
 	wg.Add(1)
-	go repobuild.ModelProcessor(model, &cliCommunication, &stats, &wg)
+	go repobuild.ModelProcessor(model, args.StartCli, &cliCommunication, &stats, &wg)
 	if args.StartCli {
 		wg.Add(1)
 		cliCommunication.StopChan = make(chan int)
-		go repobuild.ModelCli(&cliCommunication, &wg)
+		portstr := "3333"
+		port, err := strconv.Atoi(portstr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		ip, err := net.LookupIP("localhost")
+		if err != nil {
+			log.Fatal(err)
+		}
+		go startCliServer(&cliCommunication, &wg, ip[0], port)
 	}
 
 	wg.Wait()
 	stats.FinishTime = time.Now()
 	fmt.Printf("%s\n", stats.Print())
+}
+
+func startCliServer(cliCommunication *repobuild.CliCommunication, wg *sync.WaitGroup, ip net.IP, port int) {
+	cliServer := cli.New(ip, port)
+	cliServer.Run(cliCommunication, wg)
 }
 
 // process reads in the input file and returns a Model

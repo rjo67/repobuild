@@ -18,7 +18,7 @@ type NodeStatistics struct {
 
 // Print returns the statistics as a string
 func (stats Statistics) Print() string {
-	str := fmt.Sprintf("\nFinished in %s\n", stats.FinishTime.Sub(stats.StartTime).Round(time.Second))
+	str := fmt.Sprintf("\nProcessed %d projects in %s\n", len(stats.NodeStats), stats.FinishTime.Sub(stats.StartTime).Round(time.Second))
 
 	// get length of longest projectname
 	maxLength := 0
