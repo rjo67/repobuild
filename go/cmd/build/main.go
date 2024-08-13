@@ -34,7 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	var model repobuild.Model
+	var model *repobuild.Model
 	var err error
 	if model, err = process(args); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -60,7 +60,7 @@ func main() {
 
 	stats := repobuild.Statistics{StartTime: time.Now()}
 	wg.Add(1)
-	go repobuild.ModelProcessor(model, args.StartCli, &cliCommunication, &stats, &wg)
+	go model.ModelProcessor(args.StartCli, &cliCommunication, &stats, &wg)
 	if args.StartCli {
 		wg.Add(1)
 		cliCommunication.StopChan = make(chan int)
@@ -87,18 +87,18 @@ func startCliServer(cliCommunication *repobuild.CliCommunication, wg *sync.WaitG
 }
 
 // process reads in the input file and returns a Model
-func process(args Args) (repobuild.Model, error) {
+func process(args Args) (*repobuild.Model, error) {
 	inputData, err := os.ReadFile(args.Filename)
 	if err != nil {
-		return repobuild.Model{}, err
+		return nil, err
 	}
 	yamlModel, err := repobuild.LoadYamlModel(inputData)
 	if err != nil {
-		return repobuild.Model{}, err
+		return nil, err
 	}
-	model, err := repobuild.CreateModel(yamlModel)
+	model, err := repobuild.NewModel(yamlModel)
 	if err != nil {
-		return repobuild.Model{}, err
+		return nil, err
 	}
 
 	return model, nil

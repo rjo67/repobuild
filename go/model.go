@@ -46,6 +46,36 @@ type Model struct {
 	Nodes map[string]*Node
 }
 
+// NewModel creates a new Model from the YamlModel
+func NewModel(yamlModel YamlModel) (*Model, error) {
+	modelMap := make(map[string]*Node)
+	var err error
+	// first create all Node objects in map
+	for _, yamlProject := range yamlModel.Data {
+		projectName := yamlProject.Name
+		if _, present := modelMap[projectName]; present {
+			return &Model{}, fmt.Errorf("project '%s' defined multiple times", projectName)
+		}
+		nodeStatus := WAITING
+		if yamlProject.Ignore {
+			nodeStatus = IGNORED
+		}
+		node := Node{Name: projectName, Script: yamlProject.Script, Status: nodeStatus}
+		modelMap[projectName] = &node
+	}
+	// process dependencies
+	for _, yamlProject := range yamlModel.Data {
+		projectName := yamlProject.Name
+		if ancestors, err := _processAncestors(modelMap, yamlProject); err != nil {
+			return &Model{}, err
+		} else {
+			node := modelMap[projectName]
+			node.Ancestors = ancestors
+		}
+	}
+	return &Model{Nodes: modelMap}, err
+}
+
 // nodesWithStatus returns an array of slices of nodes indexed on the required status (indexed by 'Status')
 func (m Model) nodesWithStatus() [numberOfStatusValues][]*Node {
 	var nodes [numberOfStatusValues][]*Node
@@ -228,37 +258,6 @@ func (n Node) String() string {
 	return fmt.Sprintf("(%s/%s/%s)", n.Name, n.Ancestors, n.Children)
 }
 
-// CreateModel creates the internal model from the yaml model
-// TODO rename to New
-func CreateModel(yamlModel YamlModel) (Model, error) {
-	modelMap := make(map[string]*Node)
-	var err error
-	// first create all Node objects in map
-	for _, yamlProject := range yamlModel.Data {
-		projectName := yamlProject.Name
-		if _, present := modelMap[projectName]; present {
-			return Model{}, fmt.Errorf("project '%s' defined multiple times", projectName)
-		}
-		nodeStatus := WAITING
-		if yamlProject.Ignore {
-			nodeStatus = IGNORED
-		}
-		node := Node{Name: projectName, Script: yamlProject.Script, Status: nodeStatus}
-		modelMap[projectName] = &node
-	}
-	// process dependencies
-	for _, yamlProject := range yamlModel.Data {
-		projectName := yamlProject.Name
-		if ancestors, err := _processAncestors(modelMap, yamlProject); err != nil {
-			return Model{}, err
-		} else {
-			node := modelMap[projectName]
-			node.Ancestors = ancestors
-		}
-	}
-	return Model{Nodes: modelMap}, err
-}
-
 // command names for struct Command
 const (
 	CMD_STARTNODE     = "STARTNODE"
@@ -276,7 +275,7 @@ const (
 	CLI_CMD_STATUS              = "status"
 )
 
-// Command is the data structure that's passed between ModelProcessor and ProjectManager
+// Command is the data structure that's passed between ModelProcessor and NodeManager
 type Command struct {
 	cmd  string // name of command
 	data string // data for command
@@ -287,7 +286,7 @@ type Command struct {
 // If the CLI is in use (useCli), then nothing will happen automatically.
 // Simple commands can be sent via the cliCommunication 'in' Channel (results are sent back on the 'out' Channel)
 // Statistics will be stored in stats.
-func ModelProcessor(model Model, useCli bool, cliCommunication *CliCommunication, stats *Statistics, wg *sync.WaitGroup) {
+func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunication, stats *Statistics, wg *sync.WaitGroup) {
 	cmdChannel := make(chan Command)
 	cmdReplyChannel := make(chan Command)
 
@@ -306,7 +305,8 @@ func ModelProcessor(model Model, useCli bool, cliCommunication *CliCommunication
 		select {
 		// get input from model cli
 		case input := <-cliCommunication.FromCli:
-			stop = _processCommand(model, input, cliCommunication.ToCli)
+			stop = model._processCommand(input, cliCommunication.ToCli)
+			//TODO integrate processing of CLI commands with 'pmReply' processing: e.g. in order to have stats
 		// get info from ProjectManager
 		case pmReply := <-cmdReplyChannel:
 			switch pmReply.cmd {
@@ -372,7 +372,7 @@ func ModelProcessor(model Model, useCli bool, cliCommunication *CliCommunication
 
 // _processCommands processes a CLI command and sends an answer back on outChannel
 // Returns true if the calling loop should exit
-func _processCommand(model Model, input InChannelObject, outChannel chan<- OutChannelObject) (quitRequested bool) {
+func (model Model) _processCommand(input InChannelObject, outChannel chan<- OutChannelObject) (quitRequested bool) {
 	quitRequested = false
 	switch input.Cmd {
 	case CLI_CMD_EXIT_PROCESSOR:

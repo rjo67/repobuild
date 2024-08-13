@@ -19,7 +19,7 @@ func Test_createModel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := CreateModel(tt.yamlModel)
+			got, err := NewModel(tt.yamlModel)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createModel() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -49,7 +49,7 @@ func Test_checkMemory(t *testing.T) {
 		t.Errorf("loadYamlModel() error = %v", err)
 		return
 	}
-	model, err := CreateModel(yModel)
+	model, err := NewModel(yModel)
 	if err != nil {
 		t.Errorf("createModel() error = %v", err)
 		return
@@ -93,7 +93,7 @@ func TestModel_detectCycle(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			model, err := CreateModel(tt.yamlModel)
+			model, err := NewModel(tt.yamlModel)
 			if err != nil {
 				t.Errorf("could not create model, error = %v", err)
 			}
