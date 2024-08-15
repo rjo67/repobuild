@@ -12,21 +12,21 @@ func Test_loadModel(t *testing.T) {
 		want      string
 		wantErr   bool
 	}{
-		{"one-project",
-			`data:
+		{"one-nodes",
+			`nodes:
   - name: A
     depends: [B, C]`,
 			"{ [{A [B C]}]}", false},
-		{"two-projects",
-			`data:
+		{"two-nodes",
+			`nodes:
   - name: A
     script: run.sh param1
     depends: [B, C]
   - name: B
     depends: [C]`,
 			"{ [{A 'run.sh param1' [B C]} {B [C]}]}", false},
-		{"three-projects",
-			`data:
+		{"three-nodes",
+			`nodes:
   - name: A
     depends: [B, C]
   - name: B
@@ -35,13 +35,13 @@ func Test_loadModel(t *testing.T) {
     depends: [D]`,
 			"{ [{A [B C]} {B []} {C [D]}]}", false},
 		{"invalid field",
-			`data:
+			`nodes:
   - name: A
     depends: [B, C],
 	silly: true`,
 			"{ []}", true},
-		{"ignored project",
-			`data:
+		{"ignored node",
+			`nodes:
   - name: A
     depends: [B, C]
   - name: B

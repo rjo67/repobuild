@@ -12,10 +12,10 @@ func Test_createModel(t *testing.T) {
 		want      string
 		wantErr   bool
 	}{
-		{"ok", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}, {Name: "B"}}}, "map[A:(A/[(B/[]/[])]/[]) B:(B/[]/[])]", false},
-		{"unknown child", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}}}, "", true},
-		{"project references itself", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"A"}}}}, "", true},
-		{"same project declared twice", YamlModel{Data: []YamlProject{{Name: "A"}, {Name: "A"}}}, "", true},
+		{"ok", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}, {Name: "B"}}}, "map[A:(A/[(B/[]/[])]/[]) B:(B/[]/[])]", false},
+		{"unknown child", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}}}, "", true},
+		{"node references itself", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"A"}}}}, "", true},
+		{"same node declared twice", YamlModel{Nodes: []YamlNode{{Name: "A"}, {Name: "A"}}}, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -36,7 +36,7 @@ func Test_createModel(t *testing.T) {
 }
 
 func Test_checkMemory(t *testing.T) {
-	inputyaml := `data:
+	inputyaml := `nodes:
   - name: A
     depends: [B, C]
   - name: B
@@ -54,13 +54,13 @@ func Test_checkMemory(t *testing.T) {
 		t.Errorf("createModel() error = %v", err)
 		return
 	}
-	var dependencyInProjectA *Node
-	var dependencyInProjectB *Node
+	var dependencyInNodeA *Node
+	var dependencyInNodeB *Node
 	for _, node := range model.Nodes {
 		if node.Name == "A" {
 			for _, depends := range node.Ancestors {
 				if depends.Name == "C" {
-					dependencyInProjectA = depends
+					dependencyInNodeA = depends
 					break
 				}
 			}
@@ -68,14 +68,14 @@ func Test_checkMemory(t *testing.T) {
 		if node.Name == "B" {
 			for _, depends := range node.Ancestors {
 				if depends.Name == "C" {
-					dependencyInProjectB = depends
+					dependencyInNodeB = depends
 					break
 				}
 			}
 		}
 	}
-	if dependencyInProjectA != dependencyInProjectB {
-		t.Error("the 'C' dependency in projects A and B was not the same object")
+	if dependencyInNodeA != dependencyInNodeB {
+		t.Error("the 'C' dependency in nodes A and B was not the same object")
 		return
 	}
 }
@@ -86,10 +86,10 @@ func TestModel_detectCycle(t *testing.T) {
 		yamlModel YamlModel
 		wantErr   bool
 	}{
-		{"cycle 2 nodes", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"A"}}}}, true},
-		{"cycle 3 nodes", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"A"}}}}, true},
-		{"cycle B-C", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"B"}}}}, true},
-		{"cycle B-C 2ndversion", YamlModel{Data: []YamlProject{{Name: "A", Depends: []string{}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"B"}}}}, true},
+		{"cycle 2 nodes", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"A"}}}}, true},
+		{"cycle 3 nodes", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"A"}}}}, true},
+		{"cycle B-C", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"B"}}}}, true},
+		{"cycle B-C 2ndversion", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"B"}}}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,7 +98,7 @@ func TestModel_detectCycle(t *testing.T) {
 				t.Errorf("could not create model, error = %v", err)
 			}
 
-			err = model.detectCycle()
+			err = model.DetectCycle()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Model.detectCycle() error = %v, wantErr %v", err, tt.wantErr)
 			}

@@ -42,6 +42,7 @@ func hasFinishedStatus(status int) bool {
 	return status == FINISHED || status == IGNORED
 }
 
+// Model stores the Nodes
 type Model struct {
 	Nodes map[string]*Node
 }
@@ -51,25 +52,25 @@ func NewModel(yamlModel YamlModel) (*Model, error) {
 	modelMap := make(map[string]*Node)
 	var err error
 	// first create all Node objects in map
-	for _, yamlProject := range yamlModel.Data {
-		projectName := yamlProject.Name
-		if _, present := modelMap[projectName]; present {
-			return &Model{}, fmt.Errorf("project '%s' defined multiple times", projectName)
+	for _, yamlNode := range yamlModel.Nodes {
+		nodeName := yamlNode.Name
+		if _, present := modelMap[nodeName]; present {
+			return &Model{}, fmt.Errorf("node '%s' defined multiple times", nodeName)
 		}
 		nodeStatus := WAITING
-		if yamlProject.Ignore {
+		if yamlNode.Ignore {
 			nodeStatus = IGNORED
 		}
-		node := Node{Name: projectName, Script: yamlProject.Script, Status: nodeStatus}
-		modelMap[projectName] = &node
+		node := Node{Name: nodeName, Script: yamlNode.Script, Status: nodeStatus}
+		modelMap[nodeName] = &node
 	}
 	// process dependencies
-	for _, yamlProject := range yamlModel.Data {
-		projectName := yamlProject.Name
-		if ancestors, err := _processAncestors(modelMap, yamlProject); err != nil {
+	for _, yamlNode := range yamlModel.Nodes {
+		nodeName := yamlNode.Name
+		if ancestors, err := _processAncestors(modelMap, yamlNode); err != nil {
 			return &Model{}, err
 		} else {
-			node := modelMap[projectName]
+			node := modelMap[nodeName]
 			node.Ancestors = ancestors
 		}
 	}
@@ -94,18 +95,18 @@ func (m Model) nodesInEndStatus() int {
 	return len(allNodes[FINISHED]) + len(allNodes[ERROR]) + len(allNodes[IGNORED])
 }
 
-// SetIgnored sets the 'ignored' flag on the projects in the eparated list 'ignored'
-// Returns the number of projects processed
+// SetIgnored sets the 'ignored' flag on the nodes in the eparated list 'ignored'
+// Returns the number of nodes processed
 func (m Model) SetIgnored(ignored string) (int, error) {
-	projectNames := strings.Split(ignored, ",")
-	for _, name := range projectNames {
+	nodeNames := strings.Split(ignored, ",")
+	for _, name := range nodeNames {
 		if node, present := m.Nodes[name]; present {
 			node.Status = IGNORED
 		} else {
-			return -1, fmt.Errorf("unknown project '%s' in ignore list", name)
+			return -1, fmt.Errorf("unknown node '%s' in ignore list", name)
 		}
 	}
-	return len(projectNames), nil
+	return len(nodeNames), nil
 }
 
 // getNodeNames returns the sorted names of the nodes in the given parameter
@@ -190,8 +191,8 @@ func (m Model) findRunnableNodes() (nodes [2][]*Node, stateDescription [2][]stri
 	return nodes, stateDescription
 }
 
-// detectCycle inspects the model to detect a possible cycle.
-func (m Model) detectCycle() error {
+// DetectCycle inspects the model to detect a possible cycle.
+func (m Model) DetectCycle() error {
 	nameStack := Stack[string]()
 	for _, node := range m.Nodes {
 		alreadyProcessed := make(map[string]bool)
@@ -205,11 +206,13 @@ func (m Model) detectCycle() error {
 	}
 	return nil
 }
+
+// _detectCycle returns an error if the model contains a cycle
 func _detectCycle(node *Node, alreadyProcessed *map[string]bool, nameStack stack[string]) error {
 	for _, ancestor := range node.Ancestors {
 		if _, present := (*alreadyProcessed)[ancestor.Name]; present {
 			nameStack.Push(ancestor.Name) // to improve error messagej
-			return fmt.Errorf("cycle detected: %v", nameStack.Elements())
+			return fmt.Errorf("cycle detected %v", nameStack.Elements())
 		}
 		(*alreadyProcessed)[ancestor.Name] = true
 		nameStack.Push(ancestor.Name)
@@ -292,7 +295,7 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 
 	nodeStatusChanged := false
 	nodeStartTime := make(map[string]time.Time) // stores start times for nodes
-	// preprocess 'ignored' nodes
+	// add 'ignored' nodes to stats
 	for _, ignoredNode := range model.nodesWithStatus()[IGNORED] {
 		stats.NodeStats = append(stats.NodeStats, NodeStatistics{Name: ignoredNode.Name, BuildTime: time.Duration(0)})
 	}
@@ -307,13 +310,13 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 		case input := <-cliCommunication.FromCli:
 			stop = model._processCommand(input, cliCommunication.ToCli)
 			//TODO integrate processing of CLI commands with 'pmReply' processing: e.g. in order to have stats
-		// get info from ProjectManager
+		// get info from NodeManager
 		case pmReply := <-cmdReplyChannel:
 			switch pmReply.cmd {
 			case CMDREPLY_FINISHED, CMDREPLY_ERROR:
 				node, present := model.Nodes[pmReply.data]
 				if !present {
-					fmt.Printf("Unknown node in reply from ProjectManager: %v\n", pmReply)
+					fmt.Printf("Unknown node in reply from NodeManager: %v\n", pmReply)
 				} else if node.Status != RUNNING {
 					fmt.Printf("Invalid status for node %s: %s\n", pmReply.data, statusToString(node.Status))
 				} else {
@@ -413,16 +416,16 @@ func (model Model) _processCommand(input InChannelObject, outChannel chan<- OutC
 
 // ---------------------------------------
 
-func _processAncestors(modelMap map[string]*Node, yamlProject YamlProject) ([]*Node, error) {
+func _processAncestors(modelMap map[string]*Node, yamlNode YamlNode) ([]*Node, error) {
 	var nodes []*Node
-	for _, depends := range yamlProject.Depends {
-		if yamlProject.Name == depends {
-			return nil, fmt.Errorf("project '%s' references itself", yamlProject.Name)
+	for _, depends := range yamlNode.Depends {
+		if yamlNode.Name == depends {
+			return nil, fmt.Errorf("node '%s' references itself", yamlNode.Name)
 		}
 		if node, present := modelMap[depends]; present {
 			nodes = append(nodes, node)
 		} else {
-			return nil, fmt.Errorf("project '%s' references unknown dependency '%s'", yamlProject.Name, depends)
+			return nil, fmt.Errorf("node '%s' references unknown dependency '%s'", yamlNode.Name, depends)
 		}
 	}
 	return nodes, nil

@@ -25,7 +25,7 @@ func main() {
 
 	flag.StringVar(&args.Filename, "f", "", "node definition file (yaml)")
 	flag.BoolVar(&args.StartCli, "c", false, "start command line interface")
-	flag.StringVar(&args.Ignored, "i", "", "list of projects to ignore (comma-separated)")
+	flag.StringVar(&args.Ignored, "i", "", "list of nodes to ignore (comma-separated)")
 	flag.Parse()
 
 	// check input parameters
@@ -36,23 +36,24 @@ func main() {
 
 	var model *repobuild.Model
 	var err error
-	if model, err = process(args); err != nil {
+	model, err = process(args)
+	if err == nil {
+		if args.Ignored != "" {
+			var nbr int
+			nbr, err = model.SetIgnored(args.Ignored)
+			if err == nil {
+				nodeStr := "node"
+				if nbr != 1 {
+					nodeStr += "s"
+				}
+				fmt.Printf("Set %d %s to state 'ignored'\n", nbr, nodeStr)
+			}
+		}
+		err = model.DetectCycle()
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
-	}
-
-	if args.Ignored != "" {
-		nbr, err := model.SetIgnored(args.Ignored)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		} else {
-			projectStr := "project"
-			if nbr != 1 {
-				projectStr += "s"
-			}
-			fmt.Printf("Set %d %s to state 'ignored'\n", nbr, projectStr)
-		}
 	}
 
 	cliCommunication := repobuild.CliCommunication{ToCli: make(chan repobuild.OutChannelObject), FromCli: make(chan repobuild.InChannelObject)}

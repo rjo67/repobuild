@@ -46,7 +46,7 @@ func (server *Server) Run(cliCommunication *repobuild.CliCommunication, wg *sync
 		log.Fatal(err)
 	}
 	defer listener.Close()
-	fmt.Printf("cli running: %s:%d\n", server.ip, server.port)
+	fmt.Printf("cli running on %s:%d\n", server.ip, server.port)
 
 	for gotStopFromModelProcessor := false; !gotStopFromModelProcessor; {
 		select {

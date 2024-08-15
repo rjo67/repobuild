@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// NodeManager communicates with the ModelProcessor (via commands on cmdChannel) and returns the state of finished Projects on cmdReplyChannel
+// NodeManager communicates with the ModelProcessor (via commands on cmdChannel),
+// starts tasks to process nodes, and returns the state of finished Nodes on cmdReplyChannel
 func NodeManager(cmdChannel <-chan Command, cmdReplyChannel chan<- Command) {
 	infoChannel := make(chan string) // receives FINISHED info from processes
 	for stop := false; !stop; {

@@ -10,16 +10,16 @@ import (
 // Note: struct fields must be public in order for unmarshal to correctly populate the data.
 type YamlModel struct {
 	Name string
-	Data []YamlProject
+	Nodes []YamlNode
 }
-type YamlProject struct {
+type YamlNode struct {
 	Name    string
-	Ignore  bool     // will not try to 'build' the project
-	Script  string   // the script to run in order to build the project
-	Depends []string // these must be processed before this project can be built, i.e. ancestors
+	Ignore  bool     // will not try to 'build' the node
+	Script  string   // the script to run in order to build the node
+	Depends []string // these must be processed before this node can be built, i.e. ancestors
 }
 
-func (y YamlProject) String() string {
+func (y YamlNode) String() string {
 	script := ""
 	if y.Script != "" {
 		script = fmt.Sprintf(" '%s'", y.Script)
