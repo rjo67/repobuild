@@ -1,0 +1,33 @@
+nodes:
+  - name: A
+    depends: [B]
+  - name: B
+    depends: []
+  - name: C
+    depends: [A, D]
+  - name: D
+    depends: [A, E, F]
+  - name: E
+    depends: [F, G]
+  - name: F
+    depends: []
+  - name: G
+    depends: [A, F, H, I, J]
+  - name: H
+    depends: [I]
+  - name: I
+    depends: [J]
+  - name: J
+    depends: []
+  - name: K
+    depends: [A, B, C]
+  - name: L
+    depends: [D, F]
+  - name: M
+    depends: [I, J]
+  - name: N
+    depends: [B]
+  - name: O
+    depends: [A, B]
+  - name: P
+    depends: [O, N]

@@ -82,18 +82,29 @@ func Test_checkMemory(t *testing.T) {
 
 func TestModel_detectCycle(t *testing.T) {
 	tests := []struct {
-		name      string
-		yamlModel YamlModel
-		wantErr   bool
+		name     string
+		yamlfile string
+		wantErr  bool
 	}{
-		{"cycle 2 nodes", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"A"}}}}, true},
-		{"cycle 3 nodes", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"A"}}}}, true},
-		{"cycle B-C", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{"B"}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"B"}}}}, true},
-		{"cycle B-C 2ndversion", YamlModel{Nodes: []YamlNode{{Name: "A", Depends: []string{}}, {Name: "B", Depends: []string{"C"}}, {Name: "C", Depends: []string{"B"}}}}, true},
+		{"cycle 2 nodes", "testdata/cycle-2-nodes.yaml", true},
+		{"cycle 3 nodes", "testdata/cycle-3-nodes.yaml", true},
+		{"cycle B-C", "testdata/cycle-b-c.yaml", true},
+		{"cycle B-C 2ndversion", "testdata/cycle-b-c-2ndversion.yaml", true},
+		{"no cycle", "testdata/no-cycle.yaml", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			model, err := NewModel(tt.yamlModel)
+			bytes, err := loadFile(tt.yamlfile)
+			if err != nil {
+				t.Errorf("error = %v", err)
+				return
+			}
+			yamlModel, err := LoadYamlModel(bytes)
+			if err != nil {
+				t.Errorf("error = %v", err)
+				return
+			}
+			model, err := NewModel(yamlModel)
 			if err != nil {
 				t.Errorf("could not create model, error = %v", err)
 			}

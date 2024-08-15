@@ -194,34 +194,38 @@ func (m Model) findRunnableNodes() (nodes [2][]*Node, stateDescription [2][]stri
 // DetectCycle inspects the model to detect a possible cycle.
 func (m Model) DetectCycle() error {
 	nameStack := Stack[string]()
+	visited := make(map[string]bool)
+	recorded := make(map[string]bool)
 	for _, node := range m.Nodes {
-		alreadyProcessed := make(map[string]bool)
-		alreadyProcessed[node.Name] = true
-		nameStack.Push(node.Name)
-		err := _detectCycle(node, &alreadyProcessed, nameStack)
-		if err != nil {
-			return err
+		if _, alreadyVisited := visited[node.Name]; !alreadyVisited {
+			err := _detectCycle(node, &visited, &recorded, nameStack)
+			if err != nil {
+				return err
+			}
 		}
-		nameStack.Pop()
+		//		nameStack.Pop()
 	}
 	return nil
 }
 
 // _detectCycle returns an error if the model contains a cycle
-func _detectCycle(node *Node, alreadyProcessed *map[string]bool, nameStack stack[string]) error {
+func _detectCycle(node *Node, visited *map[string]bool, recorded *map[string]bool, nameStack stack[string]) error {
+	(*visited)[node.Name] = true
+	(*recorded)[node.Name] = true
+	nameStack.Push(node.Name)
 	for _, ancestor := range node.Ancestors {
-		if _, present := (*alreadyProcessed)[ancestor.Name]; present {
-			nameStack.Push(ancestor.Name) // to improve error messagej
+		if alreadyVisited := (*visited)[ancestor.Name]; !alreadyVisited {
+			err := _detectCycle(ancestor, visited, recorded, nameStack)
+			if err != nil {
+				return err
+			}
+			nameStack.Pop()
+		} else if alreadyRecorded := (*recorded)[ancestor.Name]; alreadyRecorded {
+			nameStack.Push(ancestor.Name) // to improve error message
 			return fmt.Errorf("cycle detected %v", nameStack.Elements())
 		}
-		(*alreadyProcessed)[ancestor.Name] = true
-		nameStack.Push(ancestor.Name)
-		err := _detectCycle(ancestor, alreadyProcessed, nameStack)
-		if err != nil {
-			return err
-		}
-		nameStack.Pop()
 	}
+	(*recorded)[node.Name] = false
 	return nil
 }
 
@@ -304,6 +308,7 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 		fmt.Println("Waiting for CLI commands....")
 	}
 	go NodeManager(cmdChannel, cmdReplyChannel)
+	runningNodes := 0
 	for stop := false; !stop; {
 		select {
 		// get input from model cli
@@ -328,6 +333,7 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 						stateStr = " (state ERROR)"
 					}
 					fmt.Printf("Node %s finished%s\n", node.Name, stateStr)
+					runningNodes--
 					if startTime, present := nodeStartTime[node.Name]; present {
 						stats.NodeStats = append(stats.NodeStats,
 							NodeStatistics{Name: node.Name, BuildTime: time.Since(startTime).Round(time.Second)})
@@ -337,14 +343,20 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 			default:
 				fmt.Printf("Unrecognised message on cmd channel: %v\n", pmReply)
 			}
-		// update state of model (have tasks finished? Start new tasks, etc)
 		default:
+			// update state of model (have tasks finished? Start new tasks, etc)
 			if !useCli {
 				runnableNodes, _ := model.findRunnableNodes()
+				if len(runnableNodes[0]) == 0 && runningNodes == 0 {
+					// deadlock
+					stop = true
+					fmt.Printf("deadlock")
+				}
 				for _, node := range runnableNodes[0] {
 					nodeStartTime[node.Name] = time.Now()
 					cmdChannel <- Command{cmd: CMD_STARTNODE, data: node.Name}
 					node.Status = RUNNING
+					runningNodes++
 					nodeStatusChanged = true
 				}
 			}

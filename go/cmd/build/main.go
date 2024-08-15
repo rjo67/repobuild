@@ -49,7 +49,7 @@ func main() {
 				fmt.Printf("Set %d %s to state 'ignored'\n", nbr, nodeStr)
 			}
 		}
-		err = model.DetectCycle()
+				err = model.DetectCycle()
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
