@@ -2,55 +2,31 @@ package repobuild
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
 func Test_loadModel(t *testing.T) {
 	tests := []struct {
-		name      string
-		inputyaml string
-		want      string
-		wantErr   bool
+		name          string
+		inputyamlfile string
+		want          string
+		wantErr       bool
 	}{
-		{"one-nodes",
-			`nodes:
-  - name: A
-    depends: [B, C]`,
-			"{ [{A [B C]}]}", false},
-		{"two-nodes",
-			`nodes:
-  - name: A
-    script: run.sh param1
-    depends: [B, C]
-  - name: B
-    depends: [C]`,
-			"{ [{A 'run.sh param1' [B C]} {B [C]}]}", false},
-		{"three-nodes",
-			`nodes:
-  - name: A
-    depends: [B, C]
-  - name: B
-    depends: []
-  - name: C
-    depends: [D]`,
-			"{ [{A [B C]} {B []} {C [D]}]}", false},
-		{"invalid field",
-			`nodes:
-  - name: A
-    depends: [B, C],
-	silly: true`,
-			"{ []}", true},
-		{"ignored node",
-			`nodes:
-  - name: A
-    depends: [B, C]
-  - name: B
-    ignore: true`,
-			"{ [{A [B C]} {B [] (ignored)}]}", false},
+		{"one-node", "testdata/one-node.yaml", "{ [{A [B C]}]}", false},
+		{"two-nodes", "testdata/two-nodes.yaml", "{ [{A 'run.sh param1' [B C]} {B [C]}]}", false},
+		{"three-nodes", "testdata/three-nodes.yaml", "{ [{A [B C]} {B []} {C [D]}]}", false},
+		{"invalid field", "testdata/invalid-field.yaml", "{ []}", true},
+		{"ignored node", "testdata/ignored-node.yaml", "{ [{A [B C]} {B [] (ignored)}]}", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := LoadYamlModel([]byte(tt.inputyaml))
+			bytes, err := loadFile(tt.inputyamlfile)
+			if err != nil {
+				t.Errorf("error = %v", err)
+				return
+			}
+			got, err := LoadYamlModel(bytes)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("loadModel() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -61,4 +37,8 @@ func Test_loadModel(t *testing.T) {
 			}
 		})
 	}
+}
+
+func loadFile(filename string) ([]byte, error) {
+	return os.ReadFile(filename)
 }

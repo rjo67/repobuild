@@ -1,0 +1,6 @@
+nodes:
+  - name: A
+    script: run.sh param1
+    depends: [B, C]
+  - name: B
+    depends: [C]

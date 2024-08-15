@@ -1,0 +1,4 @@
+nodes:
+  - name: A
+    depends: [B, C],
+  	silly: true

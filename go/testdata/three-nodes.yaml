@@ -1,0 +1,7 @@
+nodes:
+  - name: A
+    depends: [B, C]
+  - name: B
+    depends: []
+  - name: C
+    depends: [D]

@@ -1,0 +1,5 @@
+nodes:
+  - name: A
+    depends: [B, C]
+  - name: B
+    ignore: true
