@@ -301,10 +301,10 @@ type Command struct {
 
 // ModelProcessor is the main loop to process the model.
 // Will loop for as long as there are non-finished nodes, processing any nodes which can be run.
-// If the CLI is in use (useCli), then nothing will happen automatically.
+// In interactiveMode, nothing happens automatically - the processor waits for CLI commands.
 // Simple commands can be sent via the cliCommunication 'in' Channel (results are sent back on the 'out' Channel)
 // Statistics will be stored in stats.
-func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunication, stats *Statistics, wg *sync.WaitGroup) {
+func (model *Model) ModelProcessor(interactiveMode bool, cliCommunication *CliCommunication, stats *Statistics, wg *sync.WaitGroup) {
 	cmdChannel := make(chan Command)
 	cmdReplyChannel := make(chan Command)
 
@@ -312,10 +312,10 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 	nodeStartTime := make(map[string]time.Time) // stores start times for nodes
 	// add 'ignored' nodes to stats
 	for _, ignoredNode := range model.nodesWithStatus()[IGNORED] {
-		stats.NodeStats = append(stats.NodeStats, NodeStatistics{Name: ignoredNode.Name, BuildTime: time.Duration(0)})
+		stats.NodeStats = append(stats.NodeStats, NodeStatistics{Name: ignoredNode.Name, Ignored: true, BuildTime: time.Duration(0)})
 	}
 
-	if useCli {
+	if interactiveMode {
 		fmt.Println("Waiting for CLI commands....")
 	}
 	go NodeManager(cmdChannel, cmdReplyChannel)
@@ -356,7 +356,7 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 			}
 		default:
 			// update state of model (have tasks finished? Start new tasks, etc)
-			if !useCli {
+			if !interactiveMode {
 				runnableNodes, _ := model.findRunnableNodes()
 				if len(runnableNodes[0]) == 0 && runningNodes == 0 {
 					// deadlock
@@ -377,9 +377,9 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 			fmt.Printf("\n\n%s\n", model.status(false))
 			nodeStatusChanged = false
 		}
-		// potentially exit the loop, if all finished, but only if CLI not active
+		// potentially exit the loop, if all finished, but not if in interactive mode
 		if len(model.Nodes) == model.nodesInEndStatus() {
-			if !useCli {
+			if !interactiveMode {
 				stop = true
 			}
 		}
@@ -388,11 +388,9 @@ func (model *Model) ModelProcessor(useCli bool, cliCommunication *CliCommunicati
 	// stop node manager
 	cmdChannel <- Command{cmd: CMD_STOP}
 
-	// tell cli to stop (if present)
-	if useCli {
-		cliCommunication.ToCli <- OutChannelObject{Description: "model processor terminating"}
-		cliCommunication.StopChan <- 1
-	}
+	// tell cli to stop
+	cliCommunication.StopChan <- 1
+
 	wg.Done()
 }
 

@@ -15,17 +15,29 @@ import (
 )
 
 type Args struct {
-	Filename string
-	StartCli bool // start the command line process
-	Ignored  string
+	Filename        string
+	InteractiveMode bool // will wait for commands from cli
+	Ignored         string
 }
 
 func main() {
 	args := Args{}
 
-	flag.StringVar(&args.Filename, "f", "", "node definition file (yaml)")
-	flag.BoolVar(&args.StartCli, "c", false, "start command line interface")
-	flag.StringVar(&args.Ignored, "i", "", "list of nodes to ignore (comma-separated)")
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, `Usage:
+  -f, --file file
+        node definition file (yaml)
+  -i, --ignore nodes
+        comma-separated list of nodes to ignore
+  --interactive
+        Start in interactive mode.
+        Waits for commands via the command line interface.`)
+	}
+	flag.StringVar(&args.Filename, "f", "", "node definition `file` (yaml)")
+	flag.StringVar(&args.Filename, "file", "", "node definition `file` (yaml)")
+	flag.BoolVar(&args.InteractiveMode, "interactive", false, "interactive mode")
+	flag.StringVar(&args.Ignored, "i", "", "comma-separated list of `nodes` to ignore")
+	flag.StringVar(&args.Ignored, "ignore", "", "comma-separated list of `nodes` to ignore")
 	flag.Parse()
 
 	// check input parameters
@@ -49,7 +61,9 @@ func main() {
 				fmt.Printf("Set %d %s to state 'ignored'\n", nbr, nodeStr)
 			}
 		}
-				err = model.DetectCycle()
+		if err == nil {
+			err = model.DetectCycle()
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -60,22 +74,26 @@ func main() {
 	var wg = sync.WaitGroup{}
 
 	stats := repobuild.Statistics{StartTime: time.Now()}
+
+	//
+	// The ModelProcessor and the CLI are always started.
+	// Normally the ModelProcessor will automatically start processing.
+	// In 'interactive mode', the ModelProcessor will wait for commands from the CLI.
+	//
 	wg.Add(1)
-	go model.ModelProcessor(args.StartCli, &cliCommunication, &stats, &wg)
-	if args.StartCli {
-		wg.Add(1)
-		cliCommunication.StopChan = make(chan int)
-		portstr := "3333"
-		port, err := strconv.Atoi(portstr)
-		if err != nil {
-			log.Fatal(err)
-		}
-		ip, err := net.LookupIP("localhost")
-		if err != nil {
-			log.Fatal(err)
-		}
-		go startCliServer(&cliCommunication, &wg, ip[0], port)
+	go model.ModelProcessor(args.InteractiveMode, &cliCommunication, &stats, &wg)
+	wg.Add(1)
+	cliCommunication.StopChan = make(chan int)
+	portstr := "3333"
+	port, err := strconv.Atoi(portstr)
+	if err != nil {
+		log.Fatal(err)
 	}
+	ip, err := net.LookupIP("localhost")
+	if err != nil {
+		log.Fatal(err)
+	}
+	go startCliServer(&cliCommunication, &wg, ip[0], port)
 
 	wg.Wait()
 	stats.FinishTime = time.Now()
