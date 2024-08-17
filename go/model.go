@@ -2,6 +2,7 @@ package repobuild
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -153,11 +154,21 @@ func (m Model) status(verbose bool) string {
 			errStr += ", "
 		}
 	}
+	var percents [numberOfStatusValues]float32
+	totalNbrNodesExcludingIgnored := totalNbrNodes - nbrNodes[IGNORED]
+	percents[WAITING] = float32((nbrNodes[WAITING] * 100.0) / totalNbrNodesExcludingIgnored)
+	percents[RUNNING] = float32((nbrNodes[RUNNING] * 100.0) / totalNbrNodesExcludingIgnored)
+	percents[FINISHED] = float32((nbrNodes[FINISHED] * 100.0) / totalNbrNodesExcludingIgnored)
+	padding := int(math.Round(math.Log10(float64(totalNbrNodes)))) + 1
 	if verbose {
-		return fmt.Sprintf("%d waiting: %s\n%d running: %s\n%d finished: %s\n%s%sTOTAL: %d", nbrNodes[WAITING],
-			nodeNames[WAITING], nbrNodes[RUNNING], nodeNames[RUNNING], nbrNodes[FINISHED], nodeNames[FINISHED], errStr, ignoredStr, totalNbrNodes)
+		return fmt.Sprintf("%*d waiting  (%.0f%%): %s\n%*d running  (%.0f%%): %s\n%*d finished (%.0f%%): %s\n%s%sTOTAL: %d",
+			padding, nbrNodes[WAITING], percents[WAITING], nodeNames[WAITING],
+			padding, nbrNodes[RUNNING], percents[RUNNING], nodeNames[RUNNING],
+			padding, nbrNodes[FINISHED], percents[FINISHED], nodeNames[FINISHED],
+			errStr, ignoredStr, totalNbrNodes)
 	} else {
-		return fmt.Sprintf("%d waiting, %d running, %d finished, %s%sTOTAL: %d", nbrNodes[WAITING], nbrNodes[RUNNING], nbrNodes[FINISHED], errStr, ignoredStr, totalNbrNodes)
+		return fmt.Sprintf("%d waiting, %d running, %d finished (%.0f%%), %s%sTOTAL: %d", nbrNodes[WAITING], nbrNodes[RUNNING],
+			nbrNodes[FINISHED], percents[FINISHED], errStr, ignoredStr, totalNbrNodes)
 	}
 }
 

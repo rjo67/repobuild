@@ -14,6 +14,7 @@ type Statistics struct {
 type NodeStatistics struct {
 	Name      string
 	BuildTime time.Duration
+	Ignored   bool
 }
 
 // Print returns the statistics as a string
@@ -30,7 +31,13 @@ func (stats Statistics) Print() string {
 
 	for _, node := range stats.NodeStats {
 		myFiller := filler[:maxLength-len(node.Name)]
-		str += fmt.Sprintf("%s%s %v\n", node.Name, myFiller, node.BuildTime)
+		var desc string
+		if node.Ignored {
+			desc = "ignored"
+		} else {
+			desc = fmt.Sprintf("%v", node.BuildTime)
+		}
+		str += fmt.Sprintf("%s%s %s\n", node.Name, myFiller, desc)
 	}
 
 	return str
