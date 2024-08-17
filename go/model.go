@@ -45,7 +45,8 @@ func hasFinishedStatus(status int) bool {
 
 // Model stores the Nodes
 type Model struct {
-	Nodes map[string]*Node
+	Nodes         map[string]*Node
+	NodeStartTime map[string]time.Time
 }
 
 // NewModel creates a new Model from the YamlModel
@@ -75,10 +76,11 @@ func NewModel(yamlModel YamlModel) (*Model, error) {
 			node.Ancestors = ancestors
 		}
 	}
-	return &Model{Nodes: modelMap}, err
+	nodeStartTime := make(map[string]time.Time)
+	return &Model{Nodes: modelMap, NodeStartTime: nodeStartTime}, err
 }
 
-// nodesWithStatus returns an array of slices of nodes indexed on the required status (indexed by 'Status')
+// nodesWithStatus returns an array of slices of nodes indexed on 'Status'
 func (m Model) nodesWithStatus() [numberOfStatusValues][]*Node {
 	var nodes [numberOfStatusValues][]*Node
 	for i := 0; i < numberOfStatusValues; i++ {
@@ -289,6 +291,7 @@ const (
 const (
 	CLI_CMD_EXIT_PROCESSOR      = "exit"
 	CLI_CMD_FIND_RUNNABLE_NODES = "findRunnableNodes"
+	CLI_CMD_GO                  = "go"
 	CLI_CMD_SET                 = "set"
 	CLI_CMD_STATUS              = "status"
 )
@@ -305,11 +308,10 @@ type Command struct {
 // Simple commands can be sent via the cliCommunication 'in' Channel (results are sent back on the 'out' Channel)
 // Statistics will be stored in stats.
 func (model *Model) ModelProcessor(interactiveMode bool, cliCommunication *CliCommunication, stats *Statistics, wg *sync.WaitGroup) {
-	cmdChannel := make(chan Command)
-	cmdReplyChannel := make(chan Command)
+	toNodeMgrChannel := make(chan Command)
+	fromNodeMgrChannel := make(chan Command)
 
 	nodeStatusChanged := false
-	nodeStartTime := make(map[string]time.Time) // stores start times for nodes
 	// add 'ignored' nodes to stats
 	for _, ignoredNode := range model.nodesWithStatus()[IGNORED] {
 		stats.NodeStats = append(stats.NodeStats, NodeStatistics{Name: ignoredNode.Name, Ignored: true, BuildTime: time.Duration(0)})
@@ -318,16 +320,15 @@ func (model *Model) ModelProcessor(interactiveMode bool, cliCommunication *CliCo
 	if interactiveMode {
 		fmt.Println("Waiting for CLI commands....")
 	}
-	go NodeManager(cmdChannel, cmdReplyChannel)
-	runningNodes := 0
+	go NodeManager(toNodeMgrChannel, fromNodeMgrChannel)
 	for stop := false; !stop; {
 		select {
 		// get input from model cli
 		case input := <-cliCommunication.FromCli:
-			stop = model._processCommand(input, cliCommunication.ToCli)
+			stop = model._processCliCommand(input, cliCommunication.ToCli, toNodeMgrChannel)
 			//TODO integrate processing of CLI commands with 'pmReply' processing: e.g. in order to have stats
 		// get info from NodeManager
-		case pmReply := <-cmdReplyChannel:
+		case pmReply := <-fromNodeMgrChannel:
 			switch pmReply.cmd {
 			case CMDREPLY_FINISHED, CMDREPLY_ERROR:
 				node, present := model.Nodes[pmReply.data]
@@ -344,8 +345,7 @@ func (model *Model) ModelProcessor(interactiveMode bool, cliCommunication *CliCo
 						stateStr = " (state ERROR)"
 					}
 					fmt.Printf("Node %s finished%s\n", node.Name, stateStr)
-					runningNodes--
-					if startTime, present := nodeStartTime[node.Name]; present {
+					if startTime, present := model.NodeStartTime[node.Name]; present {
 						stats.NodeStats = append(stats.NodeStats,
 							NodeStatistics{Name: node.Name, BuildTime: time.Since(startTime).Round(time.Second)})
 					}
@@ -358,17 +358,16 @@ func (model *Model) ModelProcessor(interactiveMode bool, cliCommunication *CliCo
 			// update state of model (have tasks finished? Start new tasks, etc)
 			if !interactiveMode {
 				runnableNodes, _ := model.findRunnableNodes()
-				if len(runnableNodes[0]) == 0 && runningNodes == 0 {
-					// deadlock
-					stop = true
-					fmt.Printf("deadlock")
-				}
-				for _, node := range runnableNodes[0] {
-					nodeStartTime[node.Name] = time.Now()
-					cmdChannel <- Command{cmd: CMD_STARTNODE, data: node.Name}
-					node.Status = RUNNING
-					runningNodes++
-					nodeStatusChanged = true
+				if len(runnableNodes[0]) == 0 {
+					// deadlock if no nodes are running and but there are nodes waiting
+					nodesStatus := model.nodesWithStatus()
+					if len(nodesStatus[RUNNING]) == 0 && len(nodesStatus[WAITING]) > 0 {
+						fmt.Printf("deadlock: there are no running nodes but %d waiting nodes\n%v\n", len(nodesStatus[WAITING]), nodesStatus)
+						stop = true
+					}
+				} else {
+					nbrNodesStarted := model.startNodes(runnableNodes[0], toNodeMgrChannel)
+					nodeStatusChanged = nbrNodesStarted > 0
 				}
 			}
 		}
@@ -386,7 +385,7 @@ func (model *Model) ModelProcessor(interactiveMode bool, cliCommunication *CliCo
 	}
 
 	// stop node manager
-	cmdChannel <- Command{cmd: CMD_STOP}
+	toNodeMgrChannel <- Command{cmd: CMD_STOP}
 
 	// tell cli to stop
 	cliCommunication.StopChan <- 1
@@ -394,9 +393,20 @@ func (model *Model) ModelProcessor(interactiveMode bool, cliCommunication *CliCo
 	wg.Done()
 }
 
+// startNodes starts runnable nodes
+func (model Model) startNodes(runnableNodes []*Node, cmdChannel chan<- Command) (nbrNodesStarted int) {
+	for _, node := range runnableNodes {
+		model.NodeStartTime[node.Name] = time.Now()
+		cmdChannel <- Command{cmd: CMD_STARTNODE, data: node.Name}
+		node.Status = RUNNING
+		nbrNodesStarted++
+	}
+	return nbrNodesStarted
+}
+
 // _processCommands processes a CLI command and sends an answer back on outChannel
 // Returns true if the calling loop should exit
-func (model Model) _processCommand(input InChannelObject, outChannel chan<- OutChannelObject) (quitRequested bool) {
+func (model Model) _processCliCommand(input InChannelObject, outChannel chan<- OutChannelObject, nodeManagerChannel chan<- Command) (quitRequested bool) {
 	quitRequested = false
 	switch input.Cmd {
 	case CLI_CMD_EXIT_PROCESSOR:
@@ -411,6 +421,10 @@ func (model Model) _processCommand(input InChannelObject, outChannel chan<- OutC
 			nodeStr = append(nodeStr, node.Name)
 		}
 		outChannel <- OutChannelObject{NodeNames: nodeStr, NodeDesc: nodesDesc}
+	case CLI_CMD_GO:
+		runnableNodes, _ := model.findRunnableNodes()
+		nbrNodesStarted := model.startNodes(runnableNodes[0], nodeManagerChannel)
+		outChannel <- OutChannelObject{Description: fmt.Sprintf("Started %d nodes\n", nbrNodesStarted)}
 	case CLI_CMD_SET:
 		split := strings.Split(strings.TrimSpace(input.Data), " ")
 		if len(split) != 2 { // should be 3: "<node> <state>"

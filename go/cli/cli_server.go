@@ -100,6 +100,7 @@ func (client *Client) handleRequest() {
 				client.conn.Write([]byte(processNewlines(fmt.Sprintln("Q - quit\n" +
 					"H - help\n" +
 					"? - get status from model processor\n" +
+					"G - go (perform the next build step)\n" +
 					"P - process (shows the next build step)\n" +
 					"Q - closes this connection\n" +
 					"S - set node status (format: <nodename> <status>, e.g. S <node> 1)\n" +
@@ -115,6 +116,10 @@ func (client *Client) handleRequest() {
 				client.conn.Write([]byte(processNewlines(fmt.Sprintln("bye"))))
 				client.conn.Close()
 				return
+			case "G":
+				client.cliCommunication.FromCli <- repobuild.InChannelObject{Cmd: repobuild.CLI_CMD_GO}
+				output := <-client.cliCommunication.ToCli
+				client.conn.Write([]byte(processNewlines(fmt.Sprintf("%s\n", output.Description))))
 			case "?":
 				client.cliCommunication.FromCli <- repobuild.InChannelObject{Cmd: repobuild.CLI_CMD_STATUS}
 				output := <-client.cliCommunication.ToCli

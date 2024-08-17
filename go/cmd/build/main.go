@@ -54,11 +54,11 @@ func main() {
 			var nbr int
 			nbr, err = model.SetIgnored(args.Ignored)
 			if err == nil {
-				nodeStr := "node"
+				plural := ""
 				if nbr != 1 {
-					nodeStr += "s"
+					plural = "s"
 				}
-				fmt.Printf("Set %d %s to state 'ignored'\n", nbr, nodeStr)
+				fmt.Printf("Ignoring %d node%s\n", nbr, plural)
 			}
 		}
 		if err == nil {
@@ -81,8 +81,6 @@ func main() {
 	// In 'interactive mode', the ModelProcessor will wait for commands from the CLI.
 	//
 	wg.Add(1)
-	go model.ModelProcessor(args.InteractiveMode, &cliCommunication, &stats, &wg)
-	wg.Add(1)
 	cliCommunication.StopChan = make(chan int)
 	portstr := "3333"
 	port, err := strconv.Atoi(portstr)
@@ -94,6 +92,10 @@ func main() {
 		log.Fatal(err)
 	}
 	go startCliServer(&cliCommunication, &wg, ip[0], port)
+
+	time.Sleep(100 * time.Millisecond)
+	wg.Add(1)
+	go model.ModelProcessor(args.InteractiveMode, &cliCommunication, &stats, &wg)
 
 	wg.Wait()
 	stats.FinishTime = time.Now()
